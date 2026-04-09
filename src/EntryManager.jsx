@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { v4 as uuid } from 'uuid'
 import { Pencil, Trash2, Plus, X, Code, AlignLeft } from 'lucide-react'
+import { COLOR_PRESETS, DEFAULT_ENTRY_COLOR, hexToRgba } from './colors'
 
 /** 从描述文本中提取所有 @引用词条名 */
 function extractRefs(text) {
@@ -126,13 +127,13 @@ function MentionTextarea({ value, onChange, entries, currentId, placeholder, row
 export default function EntryManager({ entries, onChange }) {
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState(null)
-  const [form, setForm] = useState({ title: '', description: '', mode: 'text' })
+  const [form, setForm] = useState({ title: '', description: '', mode: 'text', color: DEFAULT_ENTRY_COLOR })
   const [jsonError, setJsonError] = useState('')
   const [error, setError] = useState('')
 
   const openAdd = () => {
     setEditing(null)
-    setForm({ title: '', description: '', mode: 'text' })
+    setForm({ title: '', description: '', mode: 'text', color: DEFAULT_ENTRY_COLOR })
     setError('')
     setJsonError('')
     setShowForm(true)
@@ -141,7 +142,7 @@ export default function EntryManager({ entries, onChange }) {
   const openEdit = (entry) => {
     setEditing(entry)
     const isJson = (() => { try { JSON.parse(entry.description); return true } catch { return false } })()
-    setForm({ title: entry.title, description: entry.description, mode: isJson ? 'json' : 'text' })
+    setForm({ title: entry.title, description: entry.description, mode: isJson ? 'json' : 'text', color: entry.color || DEFAULT_ENTRY_COLOR })
     setError('')
     setJsonError('')
     setShowForm(true)
@@ -181,10 +182,11 @@ export default function EntryManager({ entries, onChange }) {
     const dup = entries.find((e) => e.title === title && e.id !== editing?.id)
     if (dup) return setError('词条名称已存在')
 
+    const color = form.color || DEFAULT_ENTRY_COLOR
     if (editing) {
-      onChange(entries.map((e) => e.id === editing.id ? { ...e, title, description } : e))
+      onChange(entries.map((e) => e.id === editing.id ? { ...e, title, description, color } : e))
     } else {
-      onChange([...entries, { id: uuid(), title, description, createdAt: Date.now() }])
+      onChange([...entries, { id: uuid(), title, description, color, createdAt: Date.now() }])
     }
     close()
   }
@@ -219,6 +221,7 @@ export default function EntryManager({ entries, onChange }) {
             <div key={entry.id} className="group flex items-start gap-3 p-3 rounded-lg bg-[#14141e] border border-[#2e2e45] hover:border-violet-500/40 transition-colors">
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
+                  <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: entry.color || DEFAULT_ENTRY_COLOR }} />
                   <div className="text-sm font-semibold text-violet-300">@{entry.title}</div>
                   {isJson && <span className="text-[10px] bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded font-mono">JSON</span>}
                 </div>
@@ -323,6 +326,32 @@ export default function EntryManager({ entries, onChange }) {
                 ))}
               </div>
             )}
+          </div>
+
+          {/* 颜色选择 */}
+          <div>
+            <label className="text-xs text-[#888899] mb-2 block">词条颜色（在词库色系模式下生效）</label>
+            <div className="flex flex-wrap gap-2">
+              {COLOR_PRESETS.map((c) => (
+                <button
+                  key={c}
+                  onClick={() => setForm((f) => ({ ...f, color: c }))}
+                  style={{ background: c, boxShadow: form.color === c ? `0 0 0 3px ${hexToRgba(c, 0.5)}` : 'none' }}
+                  className="w-6 h-6 rounded-full transition-all hover:scale-110"
+                  title={c}
+                />
+              ))}
+              {/* 自定义颜色 */}
+              <label className="w-6 h-6 rounded-full border-2 border-dashed border-[#444460] flex items-center justify-center cursor-pointer hover:border-violet-400 transition-colors overflow-hidden" title="自定义颜色">
+                <input
+                  type="color"
+                  value={form.color}
+                  onChange={(e) => setForm((f) => ({ ...f, color: e.target.value }))}
+                  className="opacity-0 absolute w-0 h-0"
+                />
+                <span style={{ background: COLOR_PRESETS.includes(form.color) ? 'transparent' : form.color }} className="w-full h-full rounded-full" />
+              </label>
+            </div>
           </div>
 
           {error && <p className="text-xs text-red-400">{error}</p>}

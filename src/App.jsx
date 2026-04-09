@@ -16,6 +16,7 @@ export default function App() {
   const [output, setOutput] = useState('')
   const [tab, setTab] = useState('editor')
   const [showHelp, setShowHelp] = useState(false)
+  const [colorMode, setColorMode] = useState('uniform') // 'uniform' | 'level' | 'custom'
 
   useEffect(() => {
     saveEntries(entries)
@@ -106,7 +107,7 @@ export default function App() {
 
             <section>
               <h2 className="text-xs font-semibold text-[#666688] uppercase tracking-wider mb-3">编辑区</h2>
-              <Editor entries={entries} onGenerate={setOutput} />
+              <Editor entries={entries} colorMode={colorMode} onColorModeChange={setColorMode} onGenerate={setOutput} />
             </section>
 
             {output && (
@@ -133,7 +134,7 @@ export default function App() {
 
       {/* Footer */}
       <footer className="border-t border-[#1e1e2e] text-center py-4 text-xs text-[#333350]">
-        PromptLib v1.1.0 · 数据仅保存在本地浏览器
+        PromptLib v1.2.0 · 数据仅保存在本地浏览器
       </footer>
     </div>
   )

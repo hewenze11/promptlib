@@ -1,14 +1,29 @@
 import { mergeAttributes, Node } from '@tiptap/core'
-import { ReactNodeViewRenderer } from '@tiptap/react'
-import { NodeViewWrapper } from '@tiptap/react'
+import { ReactNodeViewRenderer, NodeViewWrapper } from '@tiptap/react'
+import { hexToRgba } from './colors'
 
 /* ── React 渲染组件 ───────────────────────────────────── */
-function MentionChip({ node, updateAttributes }) {
-  const { label, mode } = node.attrs
+function MentionChip({ node, updateAttributes, extension }) {
+  const { label, mode, color } = node.attrs
 
   const toggle = () => {
     updateAttributes({ mode: mode === 'A' ? 'B' : 'A' })
   }
+
+  // B 模式固定灰色，A 模式用传入颜色
+  const chipColor = mode === 'B' ? '#555570' : (color || '#7c3aed')
+
+  const style = mode === 'A'
+    ? {
+        background: hexToRgba(chipColor, 0.18),
+        color: chipColor,
+        border: `1px solid ${hexToRgba(chipColor, 0.5)}`,
+      }
+    : {
+        background: 'rgba(100,100,120,0.12)',
+        color: '#555570',
+        border: '1px solid rgba(100,100,120,0.25)',
+      }
 
   return (
     <NodeViewWrapper as="span" style={{ display: 'inline' }}>
@@ -18,6 +33,7 @@ function MentionChip({ node, updateAttributes }) {
         onClick={toggle}
         title={mode === 'A' ? '点击切换为 B 模式（灰色）' : '点击切换为 A 模式（高亮注释）'}
         contentEditable={false}
+        style={style}
       >
         {mode === 'A' ? '◆' : '◇'} @{label}
       </span>
@@ -35,9 +51,10 @@ const MentionExtension = Node.create({
 
   addAttributes() {
     return {
-      id: { default: null },
+      id:    { default: null },
       label: { default: null },
-      mode: { default: 'A' }, // 'A' 高亮注释 | 'B' 灰色仅标题
+      mode:  { default: 'A' },
+      color: { default: '#7c3aed' }, // 词条显示颜色
     }
   },
 
