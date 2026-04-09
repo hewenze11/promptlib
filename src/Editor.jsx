@@ -7,6 +7,43 @@ import { useRef } from 'react'
 import MentionList from './MentionList'
 import MentionExtension from './MentionExtension'
 
+/**
+ * 递归解析词条注释，将注释中的 @引用 展开为对应词条描述。
+ * 防止循环引用：visited 记录已访问的词条 id。
+ */
+function resolveDescription(entry, entries, visited = new Set()) {
+  if (!entry) return ''
+  if (visited.has(entry.id)) return `[循环引用: ${entry.title}]`
+  visited.add(entry.id)
+
+  const desc = entry.description || ''
+  // 替换 @词条名 为对应词条的完整描述（递归）
+  return desc.replace(/@([\w\u4e00-\u9fa5\-_]+)/g, (match, name) => {
+    const ref = entries.find((e) => e.title === name)
+    if (!ref) return match
+    return resolveDescription(ref, entries, new Set(visited))
+  })
+}
+
+/**
+ * 收集编辑器中所有 A 模式词条，递归展开其描述（去重，按首次出现顺序）
+ */
+function collectAnnotations(mentionNodes, entries) {
+  const seen = new Set()
+  const result = []
+
+  for (const m of mentionNodes) {
+    if (m.mode !== 'A') continue
+    if (seen.has(m.id)) continue
+    seen.add(m.id)
+    const entry = entries.find((e) => e.id === m.id)
+    if (!entry) continue
+    const resolved = resolveDescription(entry, entries)
+    result.push(`【${entry.title}】${resolved}`)
+  }
+  return result
+}
+
 export default function Editor({ entries, onGenerate }) {
   const reactRendererRef = useRef(null)
   const tippyInstanceRef = useRef(null)
@@ -98,7 +135,7 @@ export default function Editor({ entries, onGenerate }) {
   const handleGenerate = () => {
     if (!editor) return
 
-    // 遍历文档，找出所有 mention 节点
+    // 遍历文档，收集所有 mention 节点（保留顺序）
     const mentionNodes = []
     editor.state.doc.descendants((node) => {
       if (node.type.name === 'mention') {
@@ -106,20 +143,14 @@ export default function Editor({ entries, onGenerate }) {
       }
     })
 
-    // A 模式词条 → 从词库里找到完整描述，拼成开头注释
-    const aMentions = mentionNodes.filter((m) => m.mode === 'A')
-    const annotations = aMentions
-      .map((m) => {
-        const entry = entries.find((e) => e.id === m.id)
-        return entry ? `【${entry.title}】${entry.description}` : null
-      })
-      .filter(Boolean)
+    // A 模式词条 → 递归展开注释，拼成开头块
+    const annotations = collectAnnotations(mentionNodes, entries)
 
-    // 获取纯文本正文（mention 替换为标题）
+    // 正文：mention 节点统一替换为 [词条名]（不再用 @）
     let bodyText = ''
     editor.state.doc.descendants((node) => {
       if (node.type.name === 'text') bodyText += node.text
-      else if (node.type.name === 'mention') bodyText += `@${node.attrs.label}`
+      else if (node.type.name === 'mention') bodyText += `[${node.attrs.label}]`
       else if (node.type.name === 'paragraph' && bodyText.length) bodyText += '\n'
     })
     bodyText = bodyText.trim()
