@@ -1,0 +1,103 @@
+@import "tailwindcss";
+
+@layer base {
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
+      'Microsoft YaHei', sans-serif;
+    background: #0f0f13;
+    color: #e8e8f0;
+    min-height: 100vh;
+  }
+}
+
+/* ── TipTap editor base ─────────────────────────────── */
+.tiptap-editor .ProseMirror {
+  outline: none;
+  min-height: 220px;
+  line-height: 1.8;
+  font-size: 15px;
+  padding: 16px;
+}
+
+.tiptap-editor .ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  color: #555570;
+  pointer-events: none;
+  float: left;
+  height: 0;
+}
+
+/* ── Mention chip ────────────────────────────────────── */
+.mention {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: default;
+  user-select: none;
+  transition: all 0.15s;
+}
+
+.mention[data-mode="A"] {
+  background: rgba(139, 92, 246, 0.22);
+  color: #c4b5fd;
+  border: 1px solid rgba(139, 92, 246, 0.45);
+}
+
+.mention[data-mode="B"] {
+  background: rgba(100, 100, 120, 0.15);
+  color: #666688;
+  border: 1px solid rgba(100, 100, 120, 0.3);
+}
+
+/* ── Mention dropdown ────────────────────────────────── */
+.mention-dropdown {
+  background: #1a1a26;
+  border: 1px solid #2e2e45;
+  border-radius: 10px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+  overflow: hidden;
+  min-width: 260px;
+  max-width: 340px;
+  z-index: 9999;
+}
+
+.mention-item {
+  display: flex;
+  flex-direction: column;
+  padding: 10px 14px;
+  cursor: pointer;
+  border-bottom: 1px solid #22223a;
+  transition: background 0.1s;
+}
+
+.mention-item:last-child { border-bottom: none; }
+.mention-item:hover, .mention-item.is-selected {
+  background: #252538;
+}
+
+.mention-item-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #c4b5fd;
+}
+
+.mention-item-desc {
+  font-size: 11px;
+  color: #666688;
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 280px;
+}
+
+/* ── Scrollbar ───────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #2e2e45; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #44446a; }
