@@ -35,7 +35,7 @@ function MentionChip({ node, updateAttributes, extension }) {
         contentEditable={false}
         style={style}
       >
-        {mode === 'A' ? '◆' : '◇'} @{label}
+        {mode === 'A' ? '◆' : '◇'} {label}
       </span>
     </NodeViewWrapper>
   )

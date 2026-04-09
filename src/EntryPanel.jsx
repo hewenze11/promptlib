@@ -1,6 +1,6 @@
 import { useState } from 'react'
-import { Palette, Layers, Wand2, PlusCircle } from 'lucide-react'
-import { LEVEL_COLORS, COLOR_PRESETS, computeLevels, getEntryColor, hexToRgba } from './colors'
+import { Palette, Layers, Wand2, PlusCircle, BookOpen } from 'lucide-react'
+import { LEVEL_COLORS, computeLevels, getEntryColor, hexToRgba } from './colors'
 import EntryTooltip from './EntryTooltip'
 
 const MODES = [
@@ -9,21 +9,20 @@ const MODES = [
   { id: 'custom',  label: '模式三', desc: '词库色系', icon: Wand2 },
 ]
 
-export default function EntryPanel({ entries, colorMode, onColorModeChange, onInsert }) {
-  const [insertMode, setInsertMode] = useState(false)
+export default function EntryPanel({ entries, colorMode, onColorModeChange, onInsert, panelMode, onPanelModeChange }) {
   const [showModeMenu, setShowModeMenu] = useState(false)
   const [tooltip, setTooltip] = useState(null) // { entry, x, y }
 
   if (entries.length === 0) return null
 
   const levels = computeLevels(entries)
+  const isInsert = panelMode === 'insert'
 
   const handleChipClick = (e, entry) => {
-    if (insertMode) {
+    if (isInsert) {
       const color = getEntryColor(entry, colorMode, levels)
       onInsert(entry, color)
     } else {
-      const rect = e.currentTarget.getBoundingClientRect()
       setTooltip({
         entry,
         x: e.clientX,
@@ -39,22 +38,36 @@ export default function EntryPanel({ entries, colorMode, onColorModeChange, onIn
         <div className="flex items-center gap-2">
           <span className="text-xs text-[#555570] font-medium">词条库</span>
 
-          {/* 插入 Toggle */}
-          <button
-            onClick={() => setInsertMode((v) => !v)}
-            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[10px] font-semibold transition-all ${
-              insertMode
-                ? 'bg-violet-600/30 border-violet-500/60 text-violet-200 shadow-[0_0_8px_rgba(124,58,237,0.3)]'
-                : 'border-[#2e2e45] text-[#666688] hover:text-white hover:border-[#444460]'
-            }`}
-            title={insertMode ? '点击词条将插入到编辑器（点击关闭以查看详情）' : '点击词条将显示详情卡片（点击开启以插入）'}
-          >
-            <PlusCircle size={11} />
-            插入 {insertMode ? '●' : '○'}
-          </button>
+          {/* 插入模式 / 阅读模式 互斥按钮 */}
+          <div className="flex items-center rounded-lg border border-[#2e2e45] overflow-hidden">
+            <button
+              onClick={() => onPanelModeChange?.('insert')}
+              className={`flex items-center gap-1 px-2.5 py-1 text-[10px] font-semibold transition-all ${
+                isInsert
+                  ? 'bg-violet-600/30 text-violet-200 border-r border-violet-500/40'
+                  : 'text-[#666688] hover:text-white hover:bg-[#1e1e30] border-r border-[#2e2e45]'
+              }`}
+              title="插入模式：点击词条将插入到编辑器"
+            >
+              <PlusCircle size={10} />
+              插入模式
+            </button>
+            <button
+              onClick={() => onPanelModeChange?.('read')}
+              className={`flex items-center gap-1 px-2.5 py-1 text-[10px] font-semibold transition-all ${
+                !isInsert
+                  ? 'bg-violet-600/30 text-violet-200'
+                  : 'text-[#666688] hover:text-white hover:bg-[#1e1e30]'
+              }`}
+              title="阅读模式：点击词条查看详情卡片，并自动反解编辑器中的【词条名】"
+            >
+              <BookOpen size={10} />
+              阅读模式
+            </button>
+          </div>
 
           <span className="text-[10px] text-[#333350]">
-            {insertMode ? '点击词条 → 插入编辑器' : '点击词条 → 查看详情'}
+            {isInsert ? '点击词条 → 插入编辑器' : '点击词条 → 查看详情'}
           </span>
         </div>
 
@@ -111,7 +124,7 @@ export default function EntryPanel({ entries, colorMode, onColorModeChange, onIn
             <button
               key={entry.id}
               onClick={(e) => handleChipClick(e, entry)}
-              title={insertMode ? `插入 @${entry.title}` : `查看 @${entry.title} 详情`}
+              title={isInsert ? `插入 ${entry.title}` : `查看 ${entry.title} 详情`}
               style={{
                 background: hexToRgba(color, 0.15),
                 color: color,
@@ -119,7 +132,7 @@ export default function EntryPanel({ entries, colorMode, onColorModeChange, onIn
               }}
               className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium transition-all hover:scale-105 active:scale-95 cursor-pointer"
             >
-              {insertMode ? '＋' : '◆'} @{entry.title}
+              {isInsert ? '＋' : '◆'} {entry.title}
             </button>
           )
         })}
