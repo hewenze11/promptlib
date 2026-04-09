@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect } from 'react'
 import { v4 as uuid } from 'uuid'
-import { Pencil, Trash2, Plus, X, Code, AlignLeft } from 'lucide-react'
+import { Pencil, Trash2, Plus, X, Code, AlignLeft, AlertTriangle, Link } from 'lucide-react'
 import { COLOR_PRESETS, DEFAULT_ENTRY_COLOR, hexToRgba } from './colors'
+import { detectCycles } from './cycleDetect'
 
 /** 从描述文本中提取所有 @引用词条名 */
 function extractRefs(text) {
@@ -130,6 +131,10 @@ export default function EntryManager({ entries, onChange }) {
   const [form, setForm] = useState({ title: '', description: '', mode: 'text', color: DEFAULT_ENTRY_COLOR })
   const [jsonError, setJsonError] = useState('')
   const [error, setError] = useState('')
+  const [dismissedCycles, setDismissedCycles] = useState(false)
+
+  // 循环引用检测
+  const cycles = detectCycles(entries)
 
   const openAdd = () => {
     setEditing(null)
@@ -209,6 +214,24 @@ export default function EntryManager({ entries, onChange }) {
 
   return (
     <div className="flex flex-col gap-3">
+      {/* 循环引用警告 */}
+      {cycles.length > 0 && !dismissedCycles && (
+        <div className="flex items-start gap-2 p-3 rounded-lg bg-amber-500/10 border border-amber-500/30">
+          <AlertTriangle size={14} className="text-amber-400 shrink-0 mt-0.5" />
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-semibold text-amber-300 mb-1">存在循环引用（不影响使用）</p>
+            {cycles.map((c, i) => (
+              <p key={i} className="text-[11px] text-amber-400/80 font-mono">
+                位置 → {c.path.join(' → ')}
+              </p>
+            ))}
+          </div>
+          <button onClick={() => setDismissedCycles(true)} className="text-amber-500/60 hover:text-amber-300 transition-colors shrink-0">
+            <X size={13} />
+          </button>
+        </div>
+      )}
+
       {/* 词条列表 */}
       <div className="flex flex-col gap-2 max-h-[420px] overflow-y-auto pr-1">
         {entries.length === 0 && (
@@ -272,7 +295,7 @@ export default function EntryManager({ entries, onChange }) {
             <div className="flex items-center justify-between mb-1">
               <label className="text-xs text-[#888899]">
                 详细注释
-                {form.mode === 'text' && <span className="ml-1 text-[#555570]">（输入 @ 可引用已有词条）</span>}
+                {form.mode === 'text' && <span className="ml-1 text-[#555570]">（输入 @ 引用词条，[文字](链接) 插入链接）</span>}
               </label>
               <div className="flex rounded-md overflow-hidden border border-[#2e2e45] text-[10px]">
                 <button

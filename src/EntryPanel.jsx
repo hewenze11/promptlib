@@ -1,6 +1,7 @@
 import { useState } from 'react'
-import { Palette, Layers, Wand2 } from 'lucide-react'
+import { Palette, Layers, Wand2, PlusCircle } from 'lucide-react'
 import { LEVEL_COLORS, COLOR_PRESETS, computeLevels, getEntryColor, hexToRgba } from './colors'
+import EntryTooltip from './EntryTooltip'
 
 const MODES = [
   { id: 'uniform', label: '模式一', desc: '统一颜色', icon: Palette },
@@ -8,23 +9,54 @@ const MODES = [
   { id: 'custom',  label: '模式三', desc: '词库色系', icon: Wand2 },
 ]
 
-/**
- * 编辑器下方的词条快捷面板
- * - 显示所有词条，点击插入
- * - 右上角切换着色模式
- */
 export default function EntryPanel({ entries, colorMode, onColorModeChange, onInsert }) {
+  const [insertMode, setInsertMode] = useState(false)
   const [showModeMenu, setShowModeMenu] = useState(false)
+  const [tooltip, setTooltip] = useState(null) // { entry, x, y }
 
   if (entries.length === 0) return null
 
   const levels = computeLevels(entries)
 
+  const handleChipClick = (e, entry) => {
+    if (insertMode) {
+      const color = getEntryColor(entry, colorMode, levels)
+      onInsert(entry, color)
+    } else {
+      const rect = e.currentTarget.getBoundingClientRect()
+      setTooltip({
+        entry,
+        x: e.clientX,
+        y: e.clientY,
+      })
+    }
+  }
+
   return (
     <div className="mt-3">
       {/* 面板头 */}
       <div className="flex items-center justify-between mb-2">
-        <span className="text-xs text-[#555570] font-medium">词条库 · 点击插入</span>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-[#555570] font-medium">词条库</span>
+
+          {/* 插入 Toggle */}
+          <button
+            onClick={() => setInsertMode((v) => !v)}
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[10px] font-semibold transition-all ${
+              insertMode
+                ? 'bg-violet-600/30 border-violet-500/60 text-violet-200 shadow-[0_0_8px_rgba(124,58,237,0.3)]'
+                : 'border-[#2e2e45] text-[#666688] hover:text-white hover:border-[#444460]'
+            }`}
+            title={insertMode ? '点击词条将插入到编辑器（点击关闭以查看详情）' : '点击词条将显示详情卡片（点击开启以插入）'}
+          >
+            <PlusCircle size={11} />
+            插入 {insertMode ? '●' : '○'}
+          </button>
+
+          <span className="text-[10px] text-[#333350]">
+            {insertMode ? '点击词条 → 插入编辑器' : '点击词条 → 查看详情'}
+          </span>
+        </div>
 
         {/* 色系切换 */}
         <div className="relative">
@@ -78,8 +110,8 @@ export default function EntryPanel({ entries, colorMode, onColorModeChange, onIn
           return (
             <button
               key={entry.id}
-              onClick={() => onInsert(entry, color)}
-              title={entry.description}
+              onClick={(e) => handleChipClick(e, entry)}
+              title={insertMode ? `插入 @${entry.title}` : `查看 @${entry.title} 详情`}
               style={{
                 background: hexToRgba(color, 0.15),
                 color: color,
@@ -87,11 +119,23 @@ export default function EntryPanel({ entries, colorMode, onColorModeChange, onIn
               }}
               className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium transition-all hover:scale-105 active:scale-95 cursor-pointer"
             >
-              ◆ @{entry.title}
+              {insertMode ? '＋' : '◆'} @{entry.title}
             </button>
           )
         })}
       </div>
+
+      {/* 悬浮详情卡片 */}
+      {tooltip && (
+        <EntryTooltip
+          entry={tooltip.entry}
+          entries={entries}
+          colorMode={colorMode}
+          levels={levels}
+          anchorPos={{ x: tooltip.x, y: tooltip.y }}
+          onClose={() => setTooltip(null)}
+        />
+      )}
     </div>
   )
 }

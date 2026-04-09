@@ -134,7 +134,7 @@ export default function App() {
 
       {/* Footer */}
       <footer className="border-t border-[#1e1e2e] text-center py-4 text-xs text-[#333350]">
-        PromptLib v1.2.0 · 数据仅保存在本地浏览器
+        PromptLib v1.3.0 · 数据仅保存在本地浏览器
       </footer>
     </div>
   )
