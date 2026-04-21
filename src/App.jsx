@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
-import { BookOpen, FileText, Info, LogIn, LogOut, User, Cloud, CloudOff } from 'lucide-react'
+import { useSearchParams } from 'react-router-dom'
+import { BookOpen, FileText, Info, LogIn, LogOut, User, Cloud, CloudOff, Share2, Copy, Check } from 'lucide-react'
 import Editor from './Editor'
 import EntryManager from './EntryManager'
 import OutputPanel from './OutputPanel'
@@ -23,6 +24,12 @@ export default function App() {
   const [tab, setTab] = useState('editor')
   const [showHelp, setShowHelp] = useState(false)
   const [colorMode, setColorMode] = useState('uniform')
+  const [shareLink, setShareLink] = useState('')
+  const [shareCopied, setShareCopied] = useState(false)
+
+  // ── URL 参数（?text=xxx 自动填入编辑器）──
+  const [searchParams] = useSearchParams()
+  const [initText] = useState(() => searchParams.get('text') || '')
 
   // ── 登录状态 ──
   const [user, setUser] = useState(null)            // { username }
@@ -52,7 +59,7 @@ export default function App() {
         lib = await libraries.create({
           name: '我的词库',
           slug: `${(u?.username || 'user')}-default`,
-          visibility: 'private',
+          visibility: 'public',
         })
         const localEntries = loadEntries()
         for (const e of localEntries) {
@@ -254,7 +261,7 @@ export default function App() {
             )}
             <section>
               <h2 className="text-xs font-semibold text-[#666688] uppercase tracking-wider mb-3">编辑区</h2>
-              <Editor entries={entries} colorMode={colorMode} onColorModeChange={setColorMode} onGenerate={setOutput} />
+              <Editor entries={entries} colorMode={colorMode} onColorModeChange={setColorMode} onGenerate={setOutput} initialText={initText} />
             </section>
             {output && (
               <section>
@@ -273,6 +280,37 @@ export default function App() {
                 {cloudMode && <span className="ml-1 text-violet-400">· 云端同步已开启</span>}
               </p>
             </div>
+
+            {/* 分享词库链接（已登录 + 云端模式）*/}
+            {cloudMode && user && defaultLibId && (
+              <div className="mb-4 p-3 rounded-lg bg-[#14141e] border border-[#2a2a40]">
+                <p className="text-xs text-[#888899] mb-2 flex items-center gap-1"><Share2 size={12} /> 分享词库</p>
+                <div className="flex gap-2">
+                  <input
+                    readOnly
+                    value={`${window.location.origin}/@${user.username}/${user.username}-default`}
+                    className="flex-1 bg-[#0f0f13] border border-[#2a2a40] rounded-lg px-3 py-1.5 text-xs text-[#a0a0c0] outline-none"
+                  />
+                  <button
+                    onClick={() => {
+                      const slug = `${user.username}-default`
+                      const link = `${window.location.origin}/@${user.username}/${slug}`
+                      navigator.clipboard.writeText(link)
+                      setShareCopied(true)
+                      setTimeout(() => setShareCopied(false), 2000)
+                    }}
+                    className="px-3 py-1.5 bg-violet-600/20 hover:bg-violet-600/40 text-violet-300 text-xs rounded-lg border border-violet-600/30 flex items-center gap-1 transition-colors"
+                  >
+                    {shareCopied ? <Check size={12} /> : <Copy size={12} />}
+                    {shareCopied ? '已复制' : '复制'}
+                  </button>
+                </div>
+                <p className="text-[10px] text-[#444460] mt-1.5">
+                  对方打开链接后可一键导入你的词库
+                </p>
+              </div>
+            )}
+
             <EntryManager entries={entries} onChange={onChangeEntries} />
           </div>
         )}

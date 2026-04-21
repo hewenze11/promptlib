@@ -89,10 +89,11 @@ function parseTextToMentions(docJson, entries) {
   return processed[0] || docJson
 }
 
-export default function Editor({ entries, colorMode, onColorModeChange, onGenerate }) {
+export default function Editor({ entries, colorMode, onColorModeChange, onGenerate, initialText }) {
   const reactRendererRef = useRef(null)
   const tippyInstanceRef = useRef(null)
   const editorRef = useRef(null)
+  const initApplied = useRef(false)
 
   // 面板模式：'insert'（插入模式）| 'read'（阅读模式）
   const [panelMode, setPanelMode] = useState('insert')
@@ -157,7 +158,14 @@ export default function Editor({ entries, colorMode, onColorModeChange, onGenera
         },
       }),
     ],
-    onCreate({ editor }) { editorRef.current = editor },
+    onCreate({ editor }) {
+      editorRef.current = editor
+      // 如果有 initialText，插入为纯文本（@ 词条名自动转 mention）
+      if (initialText && !initApplied.current) {
+        initApplied.current = true
+        editor.commands.setContent(initialText)
+      }
+    },
     content: '',
     editorProps: {
       attributes: { 'data-placeholder': '在这里输入内容，用 @ 引用词条…' },
