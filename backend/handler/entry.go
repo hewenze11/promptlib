@@ -1,8 +1,10 @@
 package handler
 
 import (
+	"fmt"
 	"net/http"
 	"promptlib-backend/model"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 )
@@ -45,19 +47,48 @@ func CreateEntry(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+
+	// 清理标题：trim 空格，校验长度
+	req.Title = strings.TrimSpace(req.Title)
+	if req.Title == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "词条名称不能为空"})
+		return
+	}
+	if len([]rune(req.Title)) > 64 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "词条名称不能超过64个字符"})
+		return
+	}
+
 	if req.Color == "" {
 		req.Color = "#7c3aed"
 	}
+
+	// 同库同名处理：自动加 _01 _02 ... 后缀
+	finalTitle := req.Title
+	var count int64
+	model.DB.Model(&model.Entry{}).Where("library_id = ? AND title = ?", libID, req.Title).Count(&count)
+	if count > 0 {
+		for i := 1; i <= 99; i++ {
+			candidate := fmt.Sprintf("%s_%02d", req.Title, i)
+			var c2 int64
+			model.DB.Model(&model.Entry{}).Where("library_id = ? AND title = ?", libID, candidate).Count(&c2)
+			if c2 == 0 {
+				finalTitle = candidate
+				break
+			}
+		}
+	}
+
 	entry := model.Entry{
 		ID:          req.ID,
 		LibraryID:   libID,
-		Title:       req.Title,
+		Title:       finalTitle,
 		Description: req.Description,
 		Color:       req.Color,
 		SortOrder:   req.SortOrder,
 	}
 	if err := model.DB.Create(&entry).Error; err != nil {
-		c.JSON(http.StatusConflict, gin.H{"error": "词条名称已存在"})
+		c.JSON(http.StatusConflict, gin.H{"error": "创建失败: " + err.Error()})
 		return
 	}
 	c.JSON(http.StatusOK, entry)
@@ -85,7 +116,16 @@ func UpdateEntry(c *gin.Context) {
 	c.ShouldBindJSON(&req)
 	updates := map[string]interface{}{}
 	if req.Title != nil {
-		updates["title"] = *req.Title
+		t := strings.TrimSpace(*req.Title)
+		if t == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "词条名称不能为空"})
+			return
+		}
+		if len([]rune(t)) > 64 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "词条名称不能超过64个字符"})
+			return
+		}
+		updates["title"] = t
 	}
 	if req.Description != nil {
 		updates["description"] = *req.Description
