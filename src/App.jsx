@@ -1,149 +1,207 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { BookOpen, FileText, Info, LogIn, LogOut, User, Cloud, CloudOff, Share2, Copy, Check } from 'lucide-react'
+import { BookOpen, FileText, Info, LogIn, LogOut, User, Cloud, CloudOff } from 'lucide-react'
 import Editor from './Editor'
 import EntryManager from './EntryManager'
 import OutputPanel from './OutputPanel'
 import Toolbar from './Toolbar'
 import AuthModal from './AuthModal'
+import LibraryList from './LibraryList'
 import { loadEntries, saveEntries } from './storage'
-import { auth, libraries, entries as entriesApi, activelibsApi } from './api'
+import { auth, libraries as librariesApi, entries as entriesApi, activelibsApi } from './api'
 
 const TABS = [
   { id: 'editor', label: '编辑器', icon: FileText },
   { id: 'library', label: '词库管理', icon: BookOpen },
 ]
 
-// 默认词库（未登录/登录后首个词库）
-const DEFAULT_LIB_KEY = 'pl_default_lib_id'
-
 export default function App() {
   // ── 本地状态 ──
-  const [entries, setEntries] = useState(() => loadEntries())
+  const [localEntries, setLocalEntries] = useState(() => loadEntries())
   const [output, setOutput] = useState('')
   const [tab, setTab] = useState('editor')
   const [showHelp, setShowHelp] = useState(false)
   const [colorMode, setColorMode] = useState('uniform')
-  const [shareLink, setShareLink] = useState('')
-  const [shareCopied, setShareCopied] = useState(false)
 
-  // ── URL 参数（?text=xxx 自动填入编辑器）──
+  // ── URL 参数 ──
   const [searchParams] = useSearchParams()
   const [initText] = useState(() => searchParams.get('text') || '')
 
   // ── 登录状态 ──
-  const [user, setUser] = useState(null)            // { username }
+  const [user, setUser] = useState(null)
   const [showAuth, setShowAuth] = useState(false)
-  const [cloudMode, setCloudMode] = useState(false) // 是否已接入云端词库
-  const [defaultLibId, setDefaultLibId] = useState(
-    () => localStorage.getItem(DEFAULT_LIB_KEY) || null
-  )
+  const [cloudMode, setCloudMode] = useState(false)
 
-  // ── 初始化：检查已有 token ──
+  // ── 多词库状态 ──
+  const [selectedLibId, setSelectedLibId] = useState(null)   // 当前词库管理页选中的词库
+  const [activeLibIds, setActiveLibIds] = useState([])       // 激活的词库（编辑器 @ 使用）
+  const [activeLibEntries, setActiveLibEntries] = useState([]) // 所有激活词库的词条合并
+  const [libEntriesCache, setLibEntriesCache] = useState({})  // libId → entries[]
+
+  // ── 初始化：检查 token ──
   useEffect(() => {
     const token = localStorage.getItem('pl_token')
-    if (!token) return
+    if (!token) {
+      // 未登录：激活本地词库
+      setActiveLibIds(['__local__'])
+      return
+    }
     auth.getSelf()
       .then((u) => { setUser(u); syncFromCloud(u) })
-      .catch(() => localStorage.removeItem('pl_token'))
+      .catch(() => {
+        localStorage.removeItem('pl_token')
+        setActiveLibIds(['__local__'])
+      })
   }, [])
 
-  // ── 云端同步：拉取词条 ──
+  // ── 云端初始化：拉取词库列表 + 激活词库 ──
   const syncFromCloud = useCallback(async (u) => {
     try {
-      const libs = await libraries.list()
-      let lib = libs.data?.[0]
+      const libs = await librariesApi.list()
+      const libList = libs.data || libs || []
 
-      if (!lib) {
-        // 首次登录：把本地 localStorage 词条迁移到云端
-        lib = await libraries.create({
+      if (libList.length === 0) {
+        // 首次登录：迁移本地词条
+        const newLib = await librariesApi.create({
           name: '我的词库',
           slug: `${(u?.username || 'user')}-default`,
           visibility: 'public',
         })
-        const localEntries = loadEntries()
-        for (const e of localEntries) {
-          await entriesApi.create(lib.id, {
+        const localEnts = loadEntries()
+        for (const e of localEnts) {
+          await entriesApi.create(newLib.id, {
             id: e.id,
             title: e.title,
             description: e.description || '',
             color: e.color || '#7c3aed',
-          }).catch(() => {}) // 忽略重复
+          }).catch(() => {})
         }
+        libList.push(newLib)
       }
 
-      localStorage.setItem(DEFAULT_LIB_KEY, lib.id)
-      setDefaultLibId(lib.id)
+      // 拉取激活词库
+      let activeIds = []
+      try {
+        const activeRes = await activelibsApi.get()
+        activeIds = activeRes.ids || activeRes || []
+      } catch {
+        // default: first lib
+        activeIds = libList.length > 0 ? [libList[0].id] : []
+      }
+      if (activeIds.length === 0 && libList.length > 0) {
+        activeIds = [libList[0].id]
+      }
 
-      // 拉取云端词条
-      const remote = await entriesApi.list(lib.id)
-      const cloudEntries = (remote.data || []).map((e) => ({
-        id: e.id,
-        title: e.title,
-        description: e.description,
-        color: e.color,
-      }))
-      setEntries(cloudEntries)
-      saveEntries(cloudEntries)
+      setActiveLibIds(activeIds)
+      setSelectedLibId(libList[0]?.id || null)
       setCloudMode(true)
+
+      // 拉取所有激活词库的词条
+      const cache = {}
+      for (const id of activeIds) {
+        try {
+          const res = await entriesApi.list(id)
+          cache[id] = (res.data || res || []).map((e) => ({
+            id: e.id, title: e.title, description: e.description, color: e.color,
+          }))
+        } catch { cache[id] = [] }
+      }
+      setLibEntriesCache(cache)
+      updateMergedEntries(activeIds, cache)
     } catch (err) {
       console.warn('cloud sync failed, using local', err)
+      setActiveLibIds(['__local__'])
     }
   }, [])
 
-  // ── 词条变更：本地 + 云端双写 ──
-  const handleEntriesChange = useCallback(async (newEntries) => {
-    setEntries(newEntries)
-    saveEntries(newEntries)
-
-    if (!cloudMode || !defaultLibId) return
-
-    // 简单策略：全量替换
-    // 找新增的（本地有、上次没有）和删除的
-    const remote = await entriesApi.list(defaultLibId).then(r => r.data || []).catch(() => [])
-    const remoteIds = new Set(remote.map(e => e.id))
-    const localIds = new Set(newEntries.map(e => e.id))
-
-    // 删除云端已删除的
-    for (const re of remote) {
-      if (!localIds.has(re.id)) {
-        await entriesApi.del(defaultLibId, re.id).catch(() => {})
+  // ── 合并所有激活词库词条 ──
+  const updateMergedEntries = (activeIds, cache) => {
+    // Merge, handle conflicts by prefixing lib id
+    const merged = []
+    const titleCount = {}
+    for (const id of activeIds) {
+      for (const e of (cache[id] || [])) {
+        titleCount[e.title] = (titleCount[e.title] || 0) + 1
       }
     }
-    // 新增或更新
-    for (const e of newEntries) {
-      if (!remoteIds.has(e.id)) {
-        await entriesApi.create(defaultLibId, {
-          id: e.id,
-          title: e.title,
-          description: e.description || '',
-          color: e.color || '#7c3aed',
-        }).catch(() => {})
-      } else {
-        await entriesApi.update(defaultLibId, e.id, {
-          title: e.title,
-          description: e.description || '',
-          color: e.color || '#7c3aed',
-        }).catch(() => {})
+    for (const id of activeIds) {
+      for (const e of (cache[id] || [])) {
+        if (titleCount[e.title] > 1) {
+          // prefix with lib slug (use id slice as fallback)
+          merged.push({ ...e, title: `${id.slice(0, 6)}/${e.title}` })
+        } else {
+          merged.push(e)
+        }
       }
     }
-  }, [cloudMode, defaultLibId])
+    setActiveLibEntries(merged)
+    // Also save to local so Tiptap mentions stay in sync
+    saveEntries(merged)
+  }
 
-  // ── 本地模式：单纯 localStorage ──
-  const handleEntriesLocal = useCallback((newEntries) => {
-    setEntries(newEntries)
+  // ── 激活词库变更 ──
+  const handleActiveLibsChange = useCallback(async (newActiveIds) => {
+    setActiveLibIds(newActiveIds)
+    // Fetch any missing entries
+    const cache = { ...libEntriesCache }
+    for (const id of newActiveIds) {
+      if (!cache[id] && id !== '__local__' && cloudMode) {
+        try {
+          const res = await entriesApi.list(id)
+          cache[id] = (res.data || res || []).map((e) => ({
+            id: e.id, title: e.title, description: e.description, color: e.color,
+          }))
+        } catch { cache[id] = [] }
+      }
+    }
+    if (!cache['__local__']) cache['__local__'] = localEntries
+    setLibEntriesCache(cache)
+    updateMergedEntries(newActiveIds, cache)
+  }, [libEntriesCache, cloudMode, localEntries])
+
+  // ── 词条在 EntryManager 中变更：更新缓存 ──
+  const handleEntriesChange = useCallback((libId, newEntries) => {
+    if (libId === '__local__') {
+      setLocalEntries(newEntries)
+      saveEntries(newEntries)
+    }
+    setLibEntriesCache((prev) => {
+      const next = { ...prev, [libId]: newEntries }
+      updateMergedEntries(activeLibIds, next)
+      return next
+    })
+  }, [activeLibIds])
+
+  // ── 备份/恢复（Toolbar 用到的全量 entries） ──
+  const allEntries = cloudMode ? activeLibEntries : localEntries
+  const handleToolbarImport = useCallback((newEntries) => {
+    setLocalEntries(newEntries)
     saveEntries(newEntries)
-  }, [])
+    if (!cloudMode) {
+      const cache = { ...libEntriesCache, '__local__': newEntries }
+      setLibEntriesCache(cache)
+      updateMergedEntries(activeLibIds, cache)
+    }
+  }, [cloudMode, libEntriesCache, activeLibIds])
 
   const handleLogout = () => {
     localStorage.removeItem('pl_token')
     setUser(null)
     setCloudMode(false)
-    // 恢复本地词条
-    setEntries(loadEntries())
+    setActiveLibIds(['__local__'])
+    setLibEntriesCache({})
+    setActiveLibEntries([])
+    setSelectedLibId(null)
+    setLocalEntries(loadEntries())
   }
 
-  const onChangeEntries = cloudMode ? handleEntriesChange : handleEntriesLocal
+  // ── 编辑器用的 entries（所有激活词库合并） ──
+  const editorEntries = cloudMode ? activeLibEntries : localEntries
+
+  // ── 本地词库始终加入缓存 ──
+  useEffect(() => {
+    setLibEntriesCache((prev) => ({ ...prev, '__local__': localEntries }))
+  }, [localEntries])
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -156,7 +214,6 @@ export default function App() {
             <span className="text-xs text-[#444460] hidden sm:block">提示词片段库</span>
           </div>
           <div className="flex items-center gap-3">
-            {/* 云端状态指示 */}
             {user && (
               <span className={`flex items-center gap-1 text-xs ${cloudMode ? 'text-violet-400' : 'text-[#555570]'}`}>
                 {cloudMode ? <Cloud size={12} /> : <CloudOff size={12} />}
@@ -164,9 +221,8 @@ export default function App() {
               </span>
             )}
 
-            <Toolbar entries={entries} onImport={onChangeEntries} />
+            <Toolbar entries={allEntries} onImport={handleToolbarImport} />
 
-            {/* 登录/用户 */}
             {user ? (
               <div className="flex items-center gap-2">
                 <span className="flex items-center gap-1 text-xs text-[#a0a0c0]">
@@ -214,11 +270,12 @@ export default function App() {
               </ol>
             </div>
             <div>
-              <p className="text-violet-300 font-semibold mb-2">词库数据</p>
+              <p className="text-violet-300 font-semibold mb-2">多词库</p>
               <ul className="list-disc list-inside space-y-1 text-xs leading-relaxed">
-                <li>未登录时，词库保存在浏览器本地</li>
+                <li>词库管理页左栏可新建/切换多个词库</li>
+                <li>点击绿点激活词库，编辑器 @ 引用所有激活词库的词条</li>
+                <li>可从他人词库链接导入（Fork）</li>
                 <li>登录后自动同步到云端，多设备共享</li>
-                <li>首次登录会自动把本地词条迁移到云端</li>
               </ul>
             </div>
           </div>
@@ -240,9 +297,9 @@ export default function App() {
             >
               <Icon size={14} />
               {label}
-              {id === 'library' && entries.length > 0 && (
+              {id === 'library' && editorEntries.length > 0 && (
                 <span className="ml-1 text-[10px] bg-violet-600/30 text-violet-300 px-1.5 py-0.5 rounded-full">
-                  {entries.length}
+                  {editorEntries.length}
                 </span>
               )}
             </button>
@@ -254,14 +311,35 @@ export default function App() {
       <main className="flex-1 max-w-6xl mx-auto w-full px-6 py-6">
         {tab === 'editor' && (
           <div className="flex flex-col gap-6">
-            {entries.length === 0 && (
+            {/* Active libs badge bar */}
+            {activeLibIds.length > 0 && (
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-[10px] text-[#555570]">激活词库：</span>
+                {activeLibIds.map((id) => {
+                  const count = (libEntriesCache[id] || (id === '__local__' ? localEntries : [])).length
+                  const label = id === '__local__' ? '本地词库' : id.slice(0, 8)
+                  return (
+                    <span key={id} className="flex items-center gap-1 text-[10px] bg-[#14141e] border border-[#2e2e45] text-violet-300 px-2 py-0.5 rounded-full">
+                      <span className="w-1.5 h-1.5 rounded-full bg-green-500 inline-block" />
+                      {label}
+                      <span className="text-[#555570] ml-0.5">{count}</span>
+                    </span>
+                  )
+                })}
+                {activeLibIds.length === 0 && (
+                  <span className="text-[10px] text-[#555570]">无激活词库，切换到「词库管理」激活词库</span>
+                )}
+              </div>
+            )}
+
+            {editorEntries.length === 0 && (
               <div className="text-xs text-[#555570] bg-[#14141e] border border-[#2e2e45] rounded-lg px-4 py-3">
                 词库为空。切换到「词库管理」添加词条后，即可在编辑器中使用 @ 引用。
               </div>
             )}
             <section>
               <h2 className="text-xs font-semibold text-[#666688] uppercase tracking-wider mb-3">编辑区</h2>
-              <Editor entries={entries} colorMode={colorMode} onColorModeChange={setColorMode} onGenerate={setOutput} initialText={initText} />
+              <Editor entries={editorEntries} colorMode={colorMode} onColorModeChange={setColorMode} onGenerate={setOutput} initialText={initText} />
             </section>
             {output && (
               <section>
@@ -271,47 +349,46 @@ export default function App() {
             )}
           </div>
         )}
+
         {tab === 'library' && (
-          <div className="max-w-xl">
-            <div className="mb-4">
-              <h2 className="text-sm font-semibold text-white mb-1">词条管理</h2>
-              <p className="text-xs text-[#666688]">
-                词条由「名称」和「详细注释」组成。在编辑器中输入 @ 名称来引用词条。
-                {cloudMode && <span className="ml-1 text-violet-400">· 云端同步已开启</span>}
-              </p>
+          <div className="flex gap-6 min-h-[500px]">
+            {/* Left: Library list */}
+            <div className="w-56 shrink-0 flex flex-col">
+              <LibraryList
+                user={user}
+                selectedLibId={selectedLibId}
+                onSelectLib={setSelectedLibId}
+                activeLibIds={activeLibIds}
+                onActiveLibsChange={handleActiveLibsChange}
+              />
             </div>
 
-            {/* 分享词库链接（已登录 + 云端模式）*/}
-            {cloudMode && user && defaultLibId && (
-              <div className="mb-4 p-3 rounded-lg bg-[#14141e] border border-[#2a2a40]">
-                <p className="text-xs text-[#888899] mb-2 flex items-center gap-1"><Share2 size={12} /> 分享词库</p>
-                <div className="flex gap-2">
-                  <input
-                    readOnly
-                    value={`${window.location.origin}/@${user.username}/${user.username}-default`}
-                    className="flex-1 bg-[#0f0f13] border border-[#2a2a40] rounded-lg px-3 py-1.5 text-xs text-[#a0a0c0] outline-none"
+            {/* Right: Entry manager for selected lib */}
+            <div className="flex-1 min-w-0">
+              {selectedLibId ? (
+                <div>
+                  <div className="mb-4">
+                    <h2 className="text-sm font-semibold text-white mb-1">词条管理</h2>
+                    <p className="text-xs text-[#666688]">
+                      词条由「名称」和「详细注释」组成。在编辑器中输入 @ 名称来引用词条。
+                      {cloudMode && selectedLibId !== '__local__' && (
+                        <span className="ml-1 text-violet-400">· 云端同步已开启</span>
+                      )}
+                    </p>
+                  </div>
+                  <EntryManager
+                    entries={selectedLibId === '__local__' ? localEntries : (libEntriesCache[selectedLibId] || [])}
+                    onChange={(newEntries) => handleEntriesChange(selectedLibId, newEntries)}
+                    libId={selectedLibId}
+                    cloudMode={cloudMode && selectedLibId !== '__local__'}
                   />
-                  <button
-                    onClick={() => {
-                      const slug = `${user.username}-default`
-                      const link = `${window.location.origin}/@${user.username}/${slug}`
-                      navigator.clipboard.writeText(link)
-                      setShareCopied(true)
-                      setTimeout(() => setShareCopied(false), 2000)
-                    }}
-                    className="px-3 py-1.5 bg-violet-600/20 hover:bg-violet-600/40 text-violet-300 text-xs rounded-lg border border-violet-600/30 flex items-center gap-1 transition-colors"
-                  >
-                    {shareCopied ? <Check size={12} /> : <Copy size={12} />}
-                    {shareCopied ? '已复制' : '复制'}
-                  </button>
                 </div>
-                <p className="text-[10px] text-[#444460] mt-1.5">
-                  对方打开链接后可一键导入你的词库
-                </p>
-              </div>
-            )}
-
-            <EntryManager entries={entries} onChange={onChangeEntries} />
+              ) : (
+                <div className="flex items-center justify-center h-full text-[#555570] text-sm">
+                  请在左侧选择一个词库
+                </div>
+              )}
+            </div>
           </div>
         )}
       </main>

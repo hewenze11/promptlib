@@ -1,8 +1,9 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { v4 as uuid } from 'uuid'
 import { Pencil, Trash2, Plus, X, Code, AlignLeft, AlertTriangle, Link } from 'lucide-react'
 import { COLOR_PRESETS, DEFAULT_ENTRY_COLOR, hexToRgba } from './colors'
 import { detectCycles } from './cycleDetect'
+import { entries as entriesApi } from './api'
 
 /** 从描述文本中提取所有 @引用词条名 */
 function extractRefs(text) {
@@ -125,7 +126,88 @@ function MentionTextarea({ value, onChange, entries, currentId, placeholder, row
   )
 }
 
-export default function EntryManager({ entries, onChange }) {
+export default function EntryManager({ entries, onChange, libId, cloudMode }) {
+  // Cloud mode: load entries from API for the given libId
+  const [cloudEntries, setCloudEntries] = useState(null) // null = not loaded yet
+  const [cloudLoading, setCloudLoading] = useState(false)
+
+  const fetchCloudEntries = useCallback(async () => {
+    if (!cloudMode || !libId || libId === '__local__') return
+    setCloudLoading(true)
+    try {
+      const res = await entriesApi.list(libId)
+      const data = (res.data || res || []).map((e) => ({
+        id: e.id,
+        title: e.title,
+        description: e.description,
+        color: e.color,
+      }))
+      setCloudEntries(data)
+    } catch (err) {
+      console.warn('Failed to load entries for lib', libId, err)
+    } finally {
+      setCloudLoading(false)
+    }
+  }, [cloudMode, libId])
+
+  useEffect(() => {
+    if (cloudMode && libId && libId !== '__local__') {
+      fetchCloudEntries()
+    } else {
+      setCloudEntries(null)
+    }
+  }, [cloudMode, libId])
+
+  // Effective entries: cloud if available, else prop
+  const effectiveEntries = (cloudMode && libId && libId !== '__local__' && cloudEntries !== null)
+    ? cloudEntries
+    : entries
+
+  // Cloud-aware onChange
+  const handleChange = useCallback(async (newEntries) => {
+    if (!cloudMode || !libId || libId === '__local__') {
+      onChange(newEntries)
+      return
+    }
+    // Sync to cloud for this specific libId
+    const prev = cloudEntries || []
+    setCloudEntries(newEntries)
+    // Also propagate up so editor's merged entries update
+    onChange(newEntries)
+
+    const prevIds = new Set(prev.map((e) => e.id))
+    const newIds = new Set(newEntries.map((e) => e.id))
+
+    // Delete removed
+    for (const e of prev) {
+      if (!newIds.has(e.id)) {
+        await entriesApi.del(libId, e.id).catch(() => {})
+      }
+    }
+    // Add new or update
+    for (const e of newEntries) {
+      if (!prevIds.has(e.id)) {
+        await entriesApi.create(libId, {
+          id: e.id,
+          title: e.title,
+          description: e.description || '',
+          color: e.color || DEFAULT_ENTRY_COLOR,
+        }).catch(() => {})
+      } else {
+        const old = prev.find((p) => p.id === e.id)
+        if (old && (old.title !== e.title || old.description !== e.description || old.color !== e.color)) {
+          await entriesApi.update(libId, e.id, {
+            title: e.title,
+            description: e.description || '',
+            color: e.color || DEFAULT_ENTRY_COLOR,
+          }).catch(() => {})
+        }
+      }
+    }
+  }, [cloudMode, libId, cloudEntries, onChange])
+
+  const activeEntries = effectiveEntries
+  const activeOnChange = handleChange
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState(null)
   const [form, setForm] = useState({ title: '', description: '', mode: 'text', color: DEFAULT_ENTRY_COLOR })
@@ -134,7 +216,7 @@ export default function EntryManager({ entries, onChange }) {
   const [dismissedCycles, setDismissedCycles] = useState(false)
 
   // 循环引用检测
-  const cycles = detectCycles(entries)
+  const cycles = detectCycles(activeEntries)
 
   const openAdd = () => {
     setEditing(null)
@@ -184,26 +266,26 @@ export default function EntryManager({ entries, onChange }) {
     if (!title) return setError('词条名称不能为空')
     if (!description) return setError('注释内容不能为空')
     if (form.mode === 'json' && validateJson(description)) return setError('JSON 格式有误，请修正后再保存')
-    const dup = entries.find((e) => e.title === title && e.id !== editing?.id)
+    const dup = activeEntries.find((e) => e.title === title && e.id !== editing?.id)
     if (dup) return setError('词条名称已存在')
 
     const color = form.color || DEFAULT_ENTRY_COLOR
     if (editing) {
-      onChange(entries.map((e) => e.id === editing.id ? { ...e, title, description, color } : e))
+      activeOnChange(activeEntries.map((e) => e.id === editing.id ? { ...e, title, description, color } : e))
     } else {
-      onChange([...entries, { id: uuid(), title, description, color, createdAt: Date.now() }])
+      activeOnChange([...activeEntries, { id: uuid(), title, description, color, createdAt: Date.now() }])
     }
     close()
   }
 
   const remove = (id) => {
     if (!confirm('确认删除这个词条？')) return
-    onChange(entries.filter((e) => e.id !== id))
+    activeOnChange(activeEntries.filter((e) => e.id !== id))
   }
 
   const refs = extractRefs(form.description)
   const refEntries = refs
-    .map((name) => entries.find((e) => e.title === name && e.id !== editing?.id))
+    .map((name) => activeEntries.find((e) => e.title === name && e.id !== editing?.id))
     .filter(Boolean)
 
   const textareaClass = `w-full bg-[#0f0f13] border rounded-lg px-3 py-2 text-sm text-white placeholder-[#444460] focus:outline-none transition-colors resize-none leading-relaxed ${
@@ -234,10 +316,11 @@ export default function EntryManager({ entries, onChange }) {
 
       {/* 词条列表 */}
       <div className="flex flex-col gap-2 max-h-[420px] overflow-y-auto pr-1">
-        {entries.length === 0 && (
+        {cloudLoading && <div className="text-center text-[#555570] py-6 text-xs">加载中…</div>}
+        {!cloudLoading && activeEntries.length === 0 && (
           <div className="text-center text-[#555570] py-10 text-sm">暂无词条，点击下方按钮添加</div>
         )}
-        {entries.map((entry) => {
+        {activeEntries.map((entry) => {
           const refs = extractRefs(entry.description)
           const isJson = (() => { try { JSON.parse(entry.description); return true } catch { return false } })()
           return (
@@ -317,7 +400,7 @@ export default function EntryManager({ entries, onChange }) {
               <MentionTextarea
                 value={form.description}
                 onChange={handleDescChange}
-                entries={entries}
+                entries={activeEntries}
                 currentId={editing?.id}
                 placeholder="描述这个词条的详细内容。输入 @ 可以引用已有词条…"
                 rows={4}

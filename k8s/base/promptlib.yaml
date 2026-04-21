@@ -1,0 +1,127 @@
+---
+# ─────────────────────────────
+# Backend Deployment
+# ─────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: promptlib-backend
+  namespace: promptlib
+  labels:
+    app: promptlib-backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: promptlib-backend
+  template:
+    metadata:
+      labels:
+        app: promptlib-backend
+    spec:
+      containers:
+      - name: backend
+        image: 47.239.171.228/promptlib/backend:dev-latest
+        ports:
+        - containerPort: 8080
+        env:
+        - name: PORT
+          value: "8080"
+        - name: JWT_SECRET
+          value: "promptlib-prod-secret-2026"
+        - name: DB_DSN
+          value: "root:PromptLib2026!@tcp(47.239.171.228:3307)/promptlib?charset=utf8mb4&parseTime=True"
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 200m
+            memory: 256Mi
+        livenessProbe:
+          httpGet:
+            path: /api/health
+            port: 8080
+          initialDelaySeconds: 15
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /api/health
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 10
+      imagePullSecrets:
+      - name: harbor-secret
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: promptlib-backend
+  namespace: promptlib
+spec:
+  selector:
+    app: promptlib-backend
+  ports:
+  - port: 8080
+    targetPort: 8080
+---
+# ─────────────────────────────
+# Frontend Deployment（nginx 静态服务）
+# ─────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: promptlib-frontend
+  namespace: promptlib
+  labels:
+    app: promptlib-frontend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: promptlib-frontend
+  template:
+    metadata:
+      labels:
+        app: promptlib-frontend
+    spec:
+      containers:
+      - name: frontend
+        image: 47.239.171.228/promptlib/frontend:dev-latest
+        ports:
+        - containerPort: 80
+        resources:
+          requests:
+            cpu: 20m
+            memory: 32Mi
+          limits:
+            cpu: 100m
+            memory: 128Mi
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 5
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 3
+          periodSeconds: 10
+      imagePullSecrets:
+      - name: harbor-secret
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: promptlib-frontend
+  namespace: promptlib
+spec:
+  type: NodePort
+  selector:
+    app: promptlib-frontend
+  ports:
+  - port: 80
+    targetPort: 80
+    nodePort: 30093

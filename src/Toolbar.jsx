@@ -10,19 +10,12 @@ export default function Toolbar({ entries, onImport }) {
     if (!file) return
     try {
       const imported = await importEntries(file)
-      const merge = confirm(
-        `词库文件包含 ${imported.length} 个词条。\n点确定：合并到现有词库\n点取消：替换现有词库`
-      )
-      if (merge) {
-        // 合并，以 id 去重
-        const existingIds = new Set(entries.map((e) => e.id))
-        const newEntries = imported.filter((e) => !existingIds.has(e.id))
-        onImport([...entries, ...newEntries])
-      } else {
-        onImport(imported)
-      }
+      // 永远合并，以 id 去重
+      const existingIds = new Set(entries.map((e) => e.id))
+      const newEntries = imported.filter((e) => !existingIds.has(e.id))
+      onImport([...entries, ...newEntries])
     } catch {
-      alert('导入失败，请确认文件格式正确')
+      alert('恢复失败，请确认文件格式正确')
     }
     e.target.value = ''
   }
@@ -34,14 +27,14 @@ export default function Toolbar({ entries, onImport }) {
         onClick={() => fileRef.current.click()}
         className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-[#888899] hover:text-white border border-[#2e2e45] hover:border-[#44446a] rounded-lg transition-colors"
       >
-        <Upload size={12} /> 导入词库
+        <Upload size={12} /> 恢复
       </button>
       <button
         onClick={() => exportEntries(entries)}
         disabled={entries.length === 0}
         className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-[#888899] hover:text-white border border-[#2e2e45] hover:border-[#44446a] rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
       >
-        <Download size={12} /> 导出词库
+        <Download size={12} /> 备份
       </button>
     </div>
   )
