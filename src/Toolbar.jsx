@@ -27,14 +27,14 @@ export default function Toolbar({ entries, onImport }) {
         onClick={() => fileRef.current.click()}
         className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-[#888899] hover:text-white border border-[#2e2e45] hover:border-[#44446a] rounded-lg transition-colors"
       >
-        <Upload size={12} /> 恢复
+        <Upload size={12} /> 导入词库
       </button>
       <button
         onClick={() => exportEntries(entries)}
         disabled={entries.length === 0}
         className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-[#888899] hover:text-white border border-[#2e2e45] hover:border-[#44446a] rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
       >
-        <Download size={12} /> 备份
+        <Download size={12} /> 导出词库
       </button>
     </div>
   )

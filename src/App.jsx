@@ -37,6 +37,7 @@ export default function App() {
   const [activeLibIds, setActiveLibIds] = useState([])       // 激活的词库（编辑器 @ 使用）
   const [activeLibEntries, setActiveLibEntries] = useState([]) // 所有激活词库的词条合并
   const [libEntriesCache, setLibEntriesCache] = useState({})  // libId → entries[]
+  const [libMetaCache, setLibMetaCache] = useState({})        // libId → {name, slug}
 
   // ── 初始化：检查 token ──
   useEffect(() => {
@@ -44,6 +45,7 @@ export default function App() {
     if (!token) {
       // 未登录：激活本地词库
       setActiveLibIds(['__local__'])
+      setLibMetaCache({ '__local__': { name: '本地词库', slug: '__local__' } })
       return
     }
     auth.getSelf()
@@ -95,6 +97,13 @@ export default function App() {
       setActiveLibIds(activeIds)
       setSelectedLibId(libList[0]?.id || null)
       setCloudMode(true)
+
+      // 构建词库元数据缓存
+      const metaCache = { '__local__': { name: '本地词库', slug: '__local__' } }
+      for (const lib of libList) {
+        metaCache[lib.id] = { name: lib.name, slug: lib.slug }
+      }
+      setLibMetaCache(metaCache)
 
       // 拉取所有激活词库的词条
       const cache = {}
@@ -158,6 +167,13 @@ export default function App() {
     setLibEntriesCache(cache)
     updateMergedEntries(newActiveIds, cache)
   }, [libEntriesCache, cloudMode, localEntries])
+
+  // ── 计算 activeLibraries（含 name）供 Editor 使用 ──
+  const activeLibraries = activeLibIds.map((id) => ({
+    id,
+    name: (libMetaCache[id] || {}).name || (id === '__local__' ? '本地词库' : id.slice(0, 8)),
+    entries: id === '__local__' ? localEntries : (libEntriesCache[id] || []),
+  }))
 
   // ── 词条在 EntryManager 中变更：更新缓存 ──
   const handleEntriesChange = useCallback((libId, newEntries) => {
@@ -317,7 +333,7 @@ export default function App() {
                 <span className="text-[10px] text-[#555570]">激活词库：</span>
                 {activeLibIds.map((id) => {
                   const count = (libEntriesCache[id] || (id === '__local__' ? localEntries : [])).length
-                  const label = id === '__local__' ? '本地词库' : id.slice(0, 8)
+                  const label = (libMetaCache[id] || {}).name || (id === '__local__' ? '本地词库' : id.slice(0, 8))
                   return (
                     <span key={id} className="flex items-center gap-1 text-[10px] bg-[#14141e] border border-[#2e2e45] text-violet-300 px-2 py-0.5 rounded-full">
                       <span className="w-1.5 h-1.5 rounded-full bg-green-500 inline-block" />
@@ -339,7 +355,7 @@ export default function App() {
             )}
             <section>
               <h2 className="text-xs font-semibold text-[#666688] uppercase tracking-wider mb-3">编辑区</h2>
-              <Editor entries={editorEntries} colorMode={colorMode} onColorModeChange={setColorMode} onGenerate={setOutput} initialText={initText} />
+              <Editor entries={editorEntries} activeLibraries={activeLibraries} colorMode={colorMode} onColorModeChange={setColorMode} onGenerate={setOutput} initialText={initText} />
             </section>
             {output && (
               <section>

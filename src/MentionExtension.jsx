@@ -4,7 +4,7 @@ import { hexToRgba } from './colors'
 
 /* ── React 渲染组件 ───────────────────────────────────── */
 function MentionChip({ node, updateAttributes, extension }) {
-  const { label, mode, color } = node.attrs
+  const { label, mode, color, libraryName } = node.attrs
 
   const toggle = () => {
     updateAttributes({ mode: mode === 'A' ? 'B' : 'A' })
@@ -25,6 +25,13 @@ function MentionChip({ node, updateAttributes, extension }) {
         border: '1px solid rgba(100,100,120,0.25)',
       }
 
+  // conflictMap 从 extension.options 传入（Map<词条名, 出现次数>）
+  const conflictMap = extension?.options?.conflictMap
+  let displayLabel = label
+  if (conflictMap && conflictMap.get && conflictMap.get(label) > 1 && libraryName) {
+    displayLabel = `${libraryName}.${label}`
+  }
+
   return (
     <NodeViewWrapper as="span" style={{ display: 'inline' }}>
       <span
@@ -35,7 +42,7 @@ function MentionChip({ node, updateAttributes, extension }) {
         contentEditable={false}
         style={style}
       >
-        {mode === 'A' ? '◆' : '◇'} {label}
+        {mode === 'A' ? '◆' : '◇'} @{displayLabel}
       </span>
     </NodeViewWrapper>
   )
@@ -49,12 +56,20 @@ const MentionExtension = Node.create({
   selectable: false,
   atom: true,
 
+  addOptions() {
+    return {
+      conflictMap: new Map(), // Map<词条名, 出现次数>
+    }
+  },
+
   addAttributes() {
     return {
-      id:    { default: null },
-      label: { default: null },
-      mode:  { default: 'A' },
-      color: { default: '#7c3aed' }, // 词条显示颜色
+      id:          { default: null },
+      label:       { default: null },
+      mode:        { default: 'A' },
+      color:       { default: '#7c3aed' },
+      libraryId:   { default: null },   // uuid of the source library
+      libraryName: { default: null },   // human-readable library name
     }
   },
 

@@ -2,13 +2,19 @@ import { forwardRef, useEffect, useImperativeHandle, useState } from 'react'
 
 /**
  * @mention 下拉列表组件
+ * items 里每个条目可以有 displayTitle（冲突时显示 库名.词条名）
  */
 const MentionList = forwardRef(({ items, command }, ref) => {
   const [selectedIndex, setSelectedIndex] = useState(0)
 
   const selectItem = (index) => {
     const item = items[index]
-    if (item) command({ id: item.id, label: item.title })
+    if (item) command({
+      id: item.id,
+      label: item.title,
+      libraryId: item.libraryId || null,
+      libraryName: item.libraryName || null,
+    })
   }
 
   const upHandler = () =>
@@ -34,11 +40,11 @@ const MentionList = forwardRef(({ items, command }, ref) => {
     <div className="mention-dropdown">
       {items.map((item, index) => (
         <div
-          key={item.id}
+          key={`${item.id}-${item.libraryId || 'local'}`}
           className={`mention-item${index === selectedIndex ? ' is-selected' : ''}`}
           onClick={() => selectItem(index)}
         >
-          <span className="mention-item-title">@{item.title}</span>
+          <span className="mention-item-title">@{item.displayTitle || item.title}</span>
           <span className="mention-item-desc">{item.description}</span>
         </div>
       ))}
