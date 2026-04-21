@@ -1,0 +1,62 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: promptlib-backend
+  namespace: test
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: promptlib-backend
+  template:
+    metadata:
+      labels:
+        app: promptlib-backend
+    spec:
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      containers:
+      - name: promptlib-backend
+        image: 47.239.171.228/promptlib/backend:dev-latest
+        ports:
+        - containerPort: 18080
+        env:
+        - name: PORT
+          value: "18080"
+        - name: JWT_SECRET
+          value: "promptlib-prod-secret-2026"
+        - name: DB_DSN
+          value: "root:PromptLib2026!@tcp(127.0.0.1:3307)/promptlib?charset=utf8mb4&parseTime=True"
+        livenessProbe:
+          httpGet:
+            path: /api/health
+            port: 18080
+          initialDelaySeconds: 15
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /api/health
+            port: 18080
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 200m
+            memory: 256Mi
+      imagePullSecrets:
+      - name: harbor-secret
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: promptlib-backend
+  namespace: test
+spec:
+  selector:
+    app: promptlib-backend
+  ports:
+  - port: 18080
+    targetPort: 18080
