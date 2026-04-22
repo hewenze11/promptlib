@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
-import { useSearchParams } from 'react-router-dom'
-import { BookOpen, FileText, Info, LogIn, LogOut, User, Cloud, CloudOff } from 'lucide-react'
+import { useSearchParams, useNavigate } from 'react-router-dom'
+import { BookOpen, FileText, Info, LogIn, LogOut, User, Cloud, CloudOff, Settings } from 'lucide-react'
 import Editor from './Editor'
 import EntryManager from './EntryManager'
 import OutputPanel from './OutputPanel'
@@ -244,6 +244,15 @@ export default function App() {
                 <span className="flex items-center gap-1 text-xs text-[#a0a0c0]">
                   <User size={12} /> {user.username}
                 </span>
+                {user.role === 2 && (
+                  <button
+                    onClick={() => { window.location.href = '/admin' }}
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-violet-300 hover:text-violet-200 bg-violet-600/10 hover:bg-violet-600/20 rounded-lg border border-violet-600/20 transition-colors"
+                    title="管理后台"
+                  >
+                    <Settings size={12} /> 管理后台
+                  </button>
+                )}
                 <button
                   onClick={handleLogout}
                   className="p-1.5 text-[#555570] hover:text-red-400 transition-colors"
@@ -360,7 +369,7 @@ export default function App() {
             {output && (
               <section>
                 <h2 className="text-xs font-semibold text-[#666688] uppercase tracking-wider mb-3">生成结果</h2>
-                <OutputPanel text={output} onClear={() => setOutput('')} />
+                <OutputPanel text={output} onClear={() => setOutput('')} onTextChange={setOutput} />
               </section>
             )}
           </div>

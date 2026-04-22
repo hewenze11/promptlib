@@ -2,6 +2,7 @@ package main
 
 import (
 	"log"
+	"net/http"
 	"os"
 	"promptlib-backend/handler"
 	"promptlib-backend/middleware"
@@ -9,6 +10,17 @@ import (
 
 	"github.com/gin-gonic/gin"
 )
+
+func adminRequired(c *gin.Context) {
+	userID := c.GetUint("user_id")
+	var user model.User
+	if err := model.DB.First(&user, userID).Error; err != nil || user.Role != 2 {
+		c.JSON(http.StatusForbidden, gin.H{"error": "需要管理员权限"})
+		c.Abort()
+		return
+	}
+	c.Next()
+}
 
 func main() {
 	if err := model.InitDB(); err != nil {
@@ -37,9 +49,11 @@ func main() {
 	r.GET("/api/explore/tags", handler.ExploreTags)
 	r.GET("/api/users/:username", handler.GetUserProfile)
 	r.GET("/api/users/:username/:slug", handler.GetPublicLibrary)
+	r.POST("/api/ai/polish", handler.PolishText)
 
 	// 需要登录
-	auth := r.Group("/api", middleware.Auth())
+	authRequired := middleware.Auth()
+	auth := r.Group("/api", authRequired)
 	{
 		auth.GET("/user/self", handler.GetSelf)
 		auth.PUT("/user/self", handler.UpdateSelf)
@@ -61,6 +75,19 @@ func main() {
 
 		auth.GET("/active-libs", handler.GetActiveLibs)
 		auth.PUT("/active-libs", handler.UpdateActiveLibs)
+	}
+
+	// 管理员接口
+	admin := r.Group("/admin")
+	admin.Use(authRequired, adminRequired)
+	{
+		admin.GET("/configs", handler.GetConfigs)
+		admin.PUT("/configs/:key", handler.UpdateConfig)
+		admin.GET("/users", handler.AdminListUsers)
+		admin.PUT("/users/:id/role", handler.UpdateUserRole)
+		admin.GET("/libraries", handler.AdminListLibraries)
+		admin.PUT("/libraries/:id/visibility", handler.AdminUpdateLibraryVisibility)
+		admin.GET("/stats", handler.GetStats)
 	}
 
 	port := os.Getenv("PORT")

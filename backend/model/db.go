@@ -19,6 +19,7 @@ type User struct {
 	Password  string    `gorm:"size:256;not null" json:"-"`
 	Email     *string   `gorm:"uniqueIndex;size:128" json:"email,omitempty"`
 	Role      int       `gorm:"default:1" json:"role"`
+	Onboarded bool      `gorm:"default:false" json:"onboarded"`
 }
 
 type Library struct {
@@ -34,6 +35,7 @@ type Library struct {
 	ForkFromID  *string   `gorm:"size:36" json:"fork_from_id,omitempty"`
 	StarCount   int       `gorm:"default:0" json:"star_count"`
 	ForkCount   int       `gorm:"default:0" json:"fork_count"`
+	IsSystem    bool      `gorm:"default:false" json:"is_system"`
 	Tags        []LibraryTag `gorm:"foreignKey:LibraryID" json:"tags,omitempty"`
 }
 
@@ -65,6 +67,12 @@ type UserActiveLib struct {
 	SortOrder int    `gorm:"default:0" json:"sort_order"`
 }
 
+type SystemConfig struct {
+	Key       string    `gorm:"primaryKey" json:"key"`
+	Value     string    `gorm:"type:text" json:"value"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
 func InitDB() error {
 	dsn := os.Getenv("DB_DSN")
 	if dsn == "" {
@@ -75,7 +83,7 @@ func InitDB() error {
 	if err != nil {
 		return err
 	}
-	err = DB.AutoMigrate(&User{}, &Library{}, &Entry{}, &LibraryStar{}, &LibraryTag{}, &UserActiveLib{})
+	err = DB.AutoMigrate(&User{}, &Library{}, &Entry{}, &LibraryStar{}, &LibraryTag{}, &UserActiveLib{}, &SystemConfig{})
 	if err != nil {
 		return err
 	}
