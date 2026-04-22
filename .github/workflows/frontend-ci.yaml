@@ -52,4 +52,5 @@ jobs:
             k8s/overlays/dev/kustomization.yaml
           git add k8s/overlays/dev/kustomization.yaml
           git diff --staged --quiet || git commit -m "ci: frontend image ${{ env.IMAGE_TAG }}"
+          git pull --rebase origin dev
           git push
