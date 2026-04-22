@@ -78,7 +78,7 @@ func main() {
 	}
 
 	// 管理员接口
-	admin := r.Group("/admin")
+	admin := r.Group("/api/admin")
 	admin.Use(authRequired, adminRequired)
 	{
 		admin.GET("/configs", handler.GetConfigs)
