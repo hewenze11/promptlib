@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom'
 import { GitFork, Star, ArrowLeft, Copy, Check, Download, LogIn } from 'lucide-react'
 import { libraries, entries as entriesApi, auth } from './api'
@@ -19,6 +19,8 @@ export default function LibraryPage() {
 
   // 原语句（来自 URL ?text=xxx）
   const sharedText = searchParams.get('text') || ''
+  const targetEntry = searchParams.get('entry') || ''
+  const entryRefs = useRef({})
 
   useEffect(() => {
     // 检查登录状态
@@ -40,6 +42,15 @@ export default function LibraryPage() {
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false))
   }, [username, slug])
+
+  // Scroll to highlighted entry after entries load
+  useEffect(() => {
+    if (!targetEntry || entries.length === 0) return
+    const el = entryRefs.current[targetEntry]
+    if (el) {
+      setTimeout(() => el.scrollIntoView({ behavior: 'smooth', block: 'center' }), 200)
+    }
+  }, [entries, targetEntry])
 
   // 复制分享链接
   const copyShareLink = () => {
@@ -212,23 +223,31 @@ export default function LibraryPage() {
             词条（{entries.length}）
           </h2>
           <div className="flex flex-col gap-2">
-            {entries.map((entry) => (
-              <div
-                key={entry.id}
-                className="flex items-start gap-3 p-3 rounded-lg bg-[#14141e] border border-[#2e2e45]"
-              >
+            {entries.map((entry) => {
+              const isHighlighted = targetEntry && entry.title === targetEntry
+              return (
                 <div
-                  className="w-2.5 h-2.5 rounded-full shrink-0 mt-1"
-                  style={{ background: entry.color || '#7c3aed' }}
-                />
-                <div className="flex-1 min-w-0">
-                  <div className="text-sm font-semibold text-violet-300">@{entry.title}</div>
-                  <div className="text-xs text-[#888899] mt-0.5 leading-relaxed line-clamp-3">
-                    {entry.description}
+                  key={entry.id}
+                  ref={(el) => { entryRefs.current[entry.title] = el }}
+                  className={`flex items-start gap-3 p-3 rounded-lg border transition-all ${
+                    isHighlighted
+                      ? 'bg-violet-600/10 border-violet-500/60 shadow-[0_0_12px_rgba(124,58,237,0.3)]'
+                      : 'bg-[#14141e] border-[#2e2e45]'
+                  }`}
+                >
+                  <div
+                    className="w-2.5 h-2.5 rounded-full shrink-0 mt-1"
+                    style={{ background: entry.color || '#7c3aed' }}
+                  />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-semibold text-violet-300">@{entry.title}</div>
+                    <div className="text-xs text-[#888899] mt-0.5 leading-relaxed line-clamp-3">
+                      {entry.description}
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
         </div>
       </main>

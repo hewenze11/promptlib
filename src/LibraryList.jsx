@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Plus, Share2, Copy, Check, Link, Globe, Lock, X, ChevronRight, Download } from 'lucide-react'
+import { Plus, Share2, Copy, Check, Link, Globe, Lock, X, ChevronRight, Download, Trash2 } from 'lucide-react'
 import { libraries as librariesApi, activelibsApi } from './api'
 
 export default function LibraryList({ user, selectedLibId, onSelectLib, activeLibIds, onActiveLibsChange }) {
@@ -13,6 +13,9 @@ export default function LibraryList({ user, selectedLibId, onSelectLib, activeLi
   const [importing, setImporting] = useState(false)
   const [importError, setImportError] = useState('')
   const [importSuccess, setImportSuccess] = useState('')
+  const [deleteConfirm, setDeleteConfirm] = useState(null) // lib object to delete
+  const [deleteError, setDeleteError] = useState('')
+  const [deleting, setDeleting] = useState(false)
 
   // Load libraries
   const fetchLibs = useCallback(async () => {
@@ -88,6 +91,30 @@ export default function LibraryList({ user, selectedLibId, onSelectLib, activeLi
       setCopiedId(lib.id)
       setTimeout(() => setCopiedId(null), 2000)
     })
+  }
+
+  const handleDeleteLib = (lib) => {
+    if (lib.is_system) {
+      alert('系统词库不可删除')
+      return
+    }
+    setDeleteConfirm(lib)
+    setDeleteError('')
+  }
+
+  const confirmDelete = async () => {
+    if (!deleteConfirm) return
+    setDeleting(true)
+    try {
+      await librariesApi.del(deleteConfirm.id)
+      setLibs((prev) => prev.filter((l) => l.id !== deleteConfirm.id))
+      if (selectedLibId === deleteConfirm.id) onSelectLib(null)
+      setDeleteConfirm(null)
+    } catch (err) {
+      setDeleteError(err?.response?.data?.error || '删除失败，请重试')
+    } finally {
+      setDeleting(false)
+    }
   }
 
   const handleImportFromUrl = async () => {
@@ -235,6 +262,18 @@ export default function LibraryList({ user, selectedLibId, onSelectLib, activeLi
                     {copiedId === lib.id ? <Check size={11} className="text-green-400" /> : <Share2 size={11} />}
                   </button>
                 )}
+                {user && !lib.isLocal && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); handleDeleteLib(lib) }}
+                    className={`p-1 rounded hover:bg-[#252538] transition-colors ${
+                      lib.is_system ? 'text-[#333350] cursor-not-allowed' : 'text-[#555570] hover:text-red-400'
+                    }`}
+                    title={lib.is_system ? '系统词库不可删除' : '删除词库'}
+                    disabled={lib.is_system}
+                  >
+                    <Trash2 size={11} />
+                  </button>
+                )}
               </div>
             </div>
           )
@@ -265,6 +304,32 @@ export default function LibraryList({ user, selectedLibId, onSelectLib, activeLi
         {importError && <p className="text-[11px] text-red-400 mt-1">{importError}</p>}
         {importSuccess && <p className="text-[11px] text-green-400 mt-1">{importSuccess}</p>}
       </div>
+
+      {/* Delete confirmation dialog */}
+      {deleteConfirm && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={() => setDeleteConfirm(null)}>
+          <div className="bg-[#14141e] border border-[#2e2e45] rounded-xl p-5 max-w-sm w-full mx-4" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-sm font-semibold text-white mb-2">确定要删除词库「{deleteConfirm.name}」吗？</h3>
+            <p className="text-xs text-[#888899] mb-4">此操作不可恢复，词库内所有词条将被删除。</p>
+            {deleteError && <p className="text-xs text-red-400 mb-2">{deleteError}</p>}
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={() => setDeleteConfirm(null)}
+                className="px-3 py-1.5 text-xs text-[#666688] hover:text-white transition-colors"
+              >
+                取消
+              </button>
+              <button
+                onClick={confirmDelete}
+                disabled={deleting}
+                className="px-3 py-1.5 bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white text-xs rounded-lg transition-colors"
+              >
+                {deleting ? '删除中...' : '确定删除'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

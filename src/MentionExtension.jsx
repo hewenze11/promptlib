@@ -4,10 +4,38 @@ import { hexToRgba } from './colors'
 
 /* ── React 渲染组件 ───────────────────────────────────── */
 function MentionChip({ node, updateAttributes, extension }) {
-  const { label, mode, color, libraryName } = node.attrs
+  const { label, mode, color, libraryName, libraryId } = node.attrs
 
   const toggle = () => {
+    // In read mode, navigate to library page
+    const readOnly = extension?.options?.readOnly
+    if (readOnly) {
+      handleReadModeClick()
+      return
+    }
     updateAttributes({ mode: mode === 'A' ? 'B' : 'A' })
+  }
+
+  const handleReadModeClick = async () => {
+    if (!libraryId) return
+    try {
+      const res = await fetch(`/api/libraries/${libraryId}`, {
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem('pl_token')}`,
+        },
+      })
+      if (!res.ok) throw new Error('not found')
+      const data = await res.json()
+      const lib = data.library || data
+      const owner = lib.owner_username || lib.owner?.username || lib.username
+      const slug = lib.slug
+      if (owner && slug) {
+        window.location.href = `/@${owner}/${slug}?entry=${encodeURIComponent(label)}`
+        return
+      }
+    } catch {
+      // fallback: no navigation
+    }
   }
 
   // B 模式固定灰色，A 模式用传入颜色
@@ -32,15 +60,20 @@ function MentionChip({ node, updateAttributes, extension }) {
     displayLabel = `${libraryName}.${label}`
   }
 
+  const readOnly = extension?.options?.readOnly
+  const title = readOnly
+    ? '点击跳转到词条详情页'
+    : (mode === 'A' ? '点击切换为 B 模式（灰色）' : '点击切换为 A 模式（高亮注释）')
+
   return (
     <NodeViewWrapper as="span" style={{ display: 'inline' }}>
       <span
         className="mention"
         data-mode={mode}
         onClick={toggle}
-        title={mode === 'A' ? '点击切换为 B 模式（灰色）' : '点击切换为 A 模式（高亮注释）'}
+        title={title}
         contentEditable={false}
-        style={style}
+        style={{ ...style, cursor: readOnly ? 'pointer' : 'pointer' }}
       >
         {mode === 'A' ? '◆' : '◇'} @{displayLabel}
       </span>
@@ -59,6 +92,7 @@ const MentionExtension = Node.create({
   addOptions() {
     return {
       conflictMap: new Map(), // Map<词条名, 出现次数>
+      readOnly: false,
     }
   },
 
