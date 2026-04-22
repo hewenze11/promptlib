@@ -7,4 +7,4 @@ images:
 - name: 47.239.171.228/promptlib/backend
   newTag: dev-latest
 - name: 47.239.171.228/promptlib/frontend
-  newTag: dev-latest
+  newTag: dev-a95d44d
