@@ -1,8 +1,15 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Plus, Share2, Copy, Check, Link, Globe, Lock, X, ChevronRight, Download, Trash2 } from 'lucide-react'
-import { libraries as librariesApi, activelibsApi } from './api'
+import { Plus, Share2, Check, Link, Globe, Lock, X, ChevronRight, Download, Trash2 } from 'lucide-react'
+import { libraries as librariesApi } from './api'
 
-export default function LibraryList({ user, selectedLibId, onSelectLib, activeLibIds, onActiveLibsChange }) {
+export default function LibraryList({
+  user,
+  selectedLibId,
+  onSelectLib,
+  activeLibIds,
+  onActiveLibsChange,
+  onLibrariesReload,
+}) {
   const [libs, setLibs] = useState([])
   const [loading, setLoading] = useState(false)
   const [showNewForm, setShowNewForm] = useState(false)
@@ -13,24 +20,23 @@ export default function LibraryList({ user, selectedLibId, onSelectLib, activeLi
   const [importing, setImporting] = useState(false)
   const [importError, setImportError] = useState('')
   const [importSuccess, setImportSuccess] = useState('')
-  const [deleteConfirm, setDeleteConfirm] = useState(null) // lib object to delete
+  const [deleteConfirm, setDeleteConfirm] = useState(null)
   const [deleteError, setDeleteError] = useState('')
   const [deleting, setDeleting] = useState(false)
 
-  // Load libraries
   const fetchLibs = useCallback(async () => {
     if (!user) {
       setLibs([{ id: '__local__', name: '本地词库', slug: 'local', visibility: 'private', isLocal: true }])
       return
     }
+
     setLoading(true)
     try {
-      const res = await librariesApi.list()
-      const data = res.data || res || []
+      const data = await librariesApi.list()
       setLibs(data)
-      // Auto-select first if none selected
       if (!selectedLibId && data.length > 0) {
-        onSelectLib(data[0].id)
+        const preferred = data.find((lib) => !lib.is_system) || data[0]
+        onSelectLib(preferred.id)
       }
     } catch (err) {
       console.warn('Failed to load libraries', err)
@@ -41,29 +47,21 @@ export default function LibraryList({ user, selectedLibId, onSelectLib, activeLi
 
   useEffect(() => {
     fetchLibs()
-  }, [user])
+  }, [fetchLibs])
 
-  // Not logged in: just local library
   useEffect(() => {
     if (!user) {
       const localLib = { id: '__local__', name: '本地词库', slug: 'local', visibility: 'private', isLocal: true }
       setLibs([localLib])
       if (!selectedLibId) onSelectLib('__local__')
     }
-  }, [user])
+  }, [user, selectedLibId, onSelectLib])
 
   const handleToggleActive = async (libId) => {
     const newActive = activeLibIds.includes(libId)
       ? activeLibIds.filter((id) => id !== libId)
       : [...activeLibIds, libId]
-    onActiveLibsChange(newActive)
-    if (user && libId !== '__local__') {
-      try {
-        await activelibsApi.put({ ids: newActive })
-      } catch (err) {
-        console.warn('Failed to save active libs', err)
-      }
-    }
+    await onActiveLibsChange(newActive)
   }
 
   const handleCreateLib = async () => {
@@ -72,13 +70,15 @@ export default function LibraryList({ user, selectedLibId, onSelectLib, activeLi
     if (!name) return setNewFormError('请输入词库名称')
     if (!slug) return setNewFormError('请输入词库标识符 (slug)')
     if (!/^[a-z0-9_-]+$/.test(slug)) return setNewFormError('slug 只能包含小写字母、数字、连字符和下划线')
+
     try {
       const lib = await librariesApi.create({ name, slug, visibility: newForm.visibility })
-      setLibs((prev) => [...prev, lib])
+      setLibs((prev) => [lib, ...prev])
       setShowNewForm(false)
       setNewForm({ name: '', slug: '', visibility: 'public' })
       setNewFormError('')
       onSelectLib(lib.id)
+      await onLibrariesReload?.({ selectedId: lib.id })
     } catch (err) {
       setNewFormError(err?.response?.data?.error || '创建失败，请重试')
     }
@@ -107,8 +107,17 @@ export default function LibraryList({ user, selectedLibId, onSelectLib, activeLi
     setDeleting(true)
     try {
       await librariesApi.del(deleteConfirm.id)
-      setLibs((prev) => prev.filter((l) => l.id !== deleteConfirm.id))
-      if (selectedLibId === deleteConfirm.id) onSelectLib(null)
+      const remaining = libs.filter((l) => l.id !== deleteConfirm.id)
+      setLibs(remaining)
+      const nextActive = activeLibIds.filter((id) => id !== deleteConfirm.id)
+      await onActiveLibsChange(nextActive)
+
+      if (selectedLibId === deleteConfirm.id) {
+        const preferred = remaining.find((lib) => !lib.is_system) || remaining[0] || { id: '__local__' }
+        onSelectLib(preferred.id)
+      }
+
+      await onLibrariesReload?.({ selectedId: selectedLibId === deleteConfirm.id ? undefined : selectedLibId })
       setDeleteConfirm(null)
     } catch (err) {
       setDeleteError(err?.response?.data?.error || '删除失败，请重试')
@@ -120,40 +129,34 @@ export default function LibraryList({ user, selectedLibId, onSelectLib, activeLi
   const handleImportFromUrl = async () => {
     const url = importUrl.trim()
     if (!url) return
+
     setImportError('')
     setImportSuccess('')
-    // Parse /@username/slug or full URL
-    const match = url.match(/\/@([\w\-]+)\/([\w\-]+)/)
+
+    const match = url.match(/\/@([\w-]+)\/([\w-]+)/)
     if (!match) {
-      setImportError('格式不正确，请粘贴类似 /@username/slug 的链接')
+      setImportError('格式不正确，请粘贴类似 /@用户名/slug 的链接')
       return
     }
-    const [, username, slug] = match
+
     if (!user) {
       setImportError('请先登录后再导入词库')
       return
     }
+
+    const [, username, slug] = match
     setImporting(true)
     try {
-      const res = await fetch(`/api/users/${username}/${slug}/fork`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${localStorage.getItem('pl_token')}`,
-        },
-      })
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}))
-        throw new Error(data.error || `HTTP ${res.status}`)
-      }
-      const lib = await res.json()
-      setLibs((prev) => [...prev, lib])
+      const lib = await librariesApi.fork(username, slug)
+      setLibs((prev) => [lib, ...prev])
       setImportUrl('')
       setImportSuccess(`已成功导入词库「${lib.name}」`)
       onSelectLib(lib.id)
+      await onLibrariesReload?.({ selectedId: lib.id })
+      await onActiveLibsChange([...activeLibIds, lib.id])
       setTimeout(() => setImportSuccess(''), 3000)
     } catch (err) {
-      setImportError(`导入失败：${err.message}`)
+      setImportError(`导入失败：${err?.response?.data?.error || err.message}`)
     } finally {
       setImporting(false)
     }
@@ -161,7 +164,6 @@ export default function LibraryList({ user, selectedLibId, onSelectLib, activeLi
 
   return (
     <div className="flex flex-col h-full">
-      {/* Library list */}
       <div className="flex items-center justify-between mb-3">
         <span className="text-xs font-semibold text-[#888899] uppercase tracking-wider">我的词库</span>
         {user && (
@@ -174,7 +176,6 @@ export default function LibraryList({ user, selectedLibId, onSelectLib, activeLi
         )}
       </div>
 
-      {/* New lib form */}
       {showNewForm && (
         <div className="mb-3 p-3 rounded-xl bg-[#14141e] border border-violet-500/30 flex flex-col gap-2">
           <div className="flex items-center justify-between">
@@ -210,7 +211,6 @@ export default function LibraryList({ user, selectedLibId, onSelectLib, activeLi
         </div>
       )}
 
-      {/* Library items */}
       <div className="flex flex-col gap-1 flex-1 overflow-y-auto">
         {loading && <div className="text-xs text-[#555570] py-4 text-center">加载中…</div>}
         {libs.map((lib) => {
@@ -224,7 +224,6 @@ export default function LibraryList({ user, selectedLibId, onSelectLib, activeLi
                 isSelected ? 'bg-[#1e1e30] border border-violet-500/30' : 'hover:bg-[#14141e] border border-transparent'
               }`}
             >
-              {/* Active dot */}
               <button
                 onClick={(e) => { e.stopPropagation(); handleToggleActive(lib.id) }}
                 title={isActive ? '已激活（点击取消）' : '未激活（点击激活）'}
@@ -235,7 +234,6 @@ export default function LibraryList({ user, selectedLibId, onSelectLib, activeLi
                 }}
               />
 
-              {/* Lib name */}
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-1.5">
                   <span className={`text-sm truncate ${isSelected ? 'text-white' : 'text-[#a0a0c0]'}`}>{lib.name}</span>
@@ -250,7 +248,6 @@ export default function LibraryList({ user, selectedLibId, onSelectLib, activeLi
                 )}
               </div>
 
-              {/* Actions */}
               <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
                 {isSelected && <ChevronRight size={12} className="text-violet-400" />}
                 {user && !lib.isLocal && (
@@ -280,7 +277,6 @@ export default function LibraryList({ user, selectedLibId, onSelectLib, activeLi
         })}
       </div>
 
-      {/* Import from URL */}
       <div className="mt-4 pt-3 border-t border-[#1e1e2e]">
         <p className="text-[10px] text-[#555570] mb-1.5 flex items-center gap-1">
           <Download size={10} /> 从链接导入词库
@@ -305,7 +301,6 @@ export default function LibraryList({ user, selectedLibId, onSelectLib, activeLi
         {importSuccess && <p className="text-[11px] text-green-400 mt-1">{importSuccess}</p>}
       </div>
 
-      {/* Delete confirmation dialog */}
       {deleteConfirm && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={() => setDeleteConfirm(null)}>
           <div className="bg-[#14141e] border border-[#2e2e45] rounded-xl p-5 max-w-sm w-full mx-4" onClick={(e) => e.stopPropagation()}>

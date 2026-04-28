@@ -54,7 +54,6 @@ export function computeLevels(entries) {
   }
 
   const levels = {}
-  const visited = new Set()
 
   function getLevel(id, stack = new Set()) {
     if (levels[id] !== undefined) return levels[id]

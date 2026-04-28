@@ -44,6 +44,14 @@ func UpdateActiveLibs(c *gin.Context) {
 	// 清掉旧的，重写
 	model.DB.Where("user_id = ?", userID).Delete(&model.UserActiveLib{})
 	for _, item := range req {
+		if item.LibraryID == "" {
+			continue
+		}
+		var exists int64
+		model.DB.Model(&model.Library{}).Where("id = ? AND user_id = ?", item.LibraryID, userID).Count(&exists)
+		if exists == 0 {
+			continue
+		}
 		model.DB.Create(&model.UserActiveLib{
 			UserID:    userID,
 			LibraryID: item.LibraryID,

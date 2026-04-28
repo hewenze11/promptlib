@@ -15,55 +15,123 @@ const TABS = [
   { id: 'library', label: '词库管理', icon: BookOpen },
 ]
 
+function normalizeEntry(entry) {
+  return {
+    id: entry.id,
+    title: entry.title,
+    description: entry.description || '',
+    color: entry.color || '#7c3aed',
+  }
+}
+
 export default function App() {
-  // ── 本地状态 ──
   const [localEntries, setLocalEntries] = useState(() => loadEntries())
   const [output, setOutput] = useState('')
   const [tab, setTab] = useState('editor')
   const [showHelp, setShowHelp] = useState(false)
   const [colorMode, setColorMode] = useState('uniform')
 
-  // ── URL 参数 ──
   const [searchParams] = useSearchParams()
   const [initText] = useState(() => searchParams.get('text') || '')
 
-  // ── 登录状态 ──
   const [user, setUser] = useState(null)
   const [showAuth, setShowAuth] = useState(false)
   const [cloudMode, setCloudMode] = useState(false)
 
-  // ── 多词库状态 ──
-  const [selectedLibId, setSelectedLibId] = useState(null)   // 当前词库管理页选中的词库
-  const [activeLibIds, setActiveLibIds] = useState([])       // 激活的词库（编辑器 @ 使用）
-  const [activeLibEntries, setActiveLibEntries] = useState([]) // 所有激活词库的词条合并
-  const [libEntriesCache, setLibEntriesCache] = useState({})  // libId → entries[]
-  const [libMetaCache, setLibMetaCache] = useState({})        // libId → {name, slug}
+  const [selectedLibId, setSelectedLibId] = useState('__local__')
+  const [activeLibIds, setActiveLibIds] = useState(['__local__'])
+  const [activeLibEntries, setActiveLibEntries] = useState([])
+  const [libEntriesCache, setLibEntriesCache] = useState(() => ({ '__local__': loadEntries() }))
+  const [libMetaCache, setLibMetaCache] = useState({ '__local__': { name: '本地词库', slug: '__local__' } })
 
-  // ── 初始化：检查 token ──
-  useEffect(() => {
-    const token = localStorage.getItem('pl_token')
-    if (!token) {
-      // 未登录：激活本地词库
-      setActiveLibIds(['__local__'])
-      setLibMetaCache({ '__local__': { name: '本地词库', slug: '__local__' } })
-      return
+  const updateMergedEntries = useCallback((activeIds, cache) => {
+    const merged = []
+    const seenEntryIds = new Set()
+
+    for (const id of activeIds) {
+      const sourceEntries = id === '__local__' ? localEntries : (cache[id] || [])
+      for (const rawEntry of sourceEntries) {
+        const entry = normalizeEntry(rawEntry)
+        const dedupeKey = `${id}:${entry.id}`
+        if (seenEntryIds.has(dedupeKey)) continue
+        seenEntryIds.add(dedupeKey)
+        merged.push({ ...entry, sourceLibraryId: id })
+      }
     }
-    auth.getSelf()
-      .then((u) => { setUser(u); syncFromCloud(u) })
-      .catch(() => {
-        localStorage.removeItem('pl_token')
-        setActiveLibIds(['__local__'])
-      })
-  }, [])
 
-  // ── 云端初始化：拉取词库列表 + 激活词库 ──
+    setActiveLibEntries(merged)
+  }, [localEntries])
+
+  const persistActiveLibs = useCallback(async (newActiveIds) => {
+    if (!user) return
+    const cloudIds = newActiveIds.filter((id) => id !== '__local__')
+    await activelibsApi.put(cloudIds)
+  }, [user])
+
   const syncFromCloud = useCallback(async (u) => {
     try {
       const libs = await librariesApi.list()
-      const libList = libs.data || libs || []
+      const libList = Array.isArray(libs) ? libs : []
+
+      const metaCache = { '__local__': { name: '本地词库', slug: '__local__' } }
+      for (const lib of libList) {
+        metaCache[lib.id] = { name: lib.name, slug: lib.slug, visibility: lib.visibility, isSystem: !!lib.is_system }
+      }
+      setLibMetaCache(metaCache)
+
+      let activeLibsPayload = []
+      try {
+        activeLibsPayload = await activelibsApi.get()
+      } catch {
+        activeLibsPayload = []
+      }
+
+      let derivedActiveIds = []
+      const cache = { '__local__': localEntries }
+
+      if (Array.isArray(activeLibsPayload) && activeLibsPayload.length > 0) {
+        for (const item of activeLibsPayload) {
+          const libId = item.library_id || item.id
+          if (!libId) continue
+          if (!derivedActiveIds.includes(libId)) derivedActiveIds.push(libId)
+
+          if (Array.isArray(item.entries)) {
+            cache[libId] = item.entries.map(normalizeEntry)
+          } else {
+            try {
+              const entries = await entriesApi.list(libId)
+              cache[libId] = entries.map(normalizeEntry)
+            } catch {
+              cache[libId] = []
+            }
+          }
+        }
+      }
+
+      if (derivedActiveIds.length === 0 && libList.length > 0) {
+        const preferred = libList.find((lib) => !lib.is_system) || libList[0]
+        derivedActiveIds = preferred ? [preferred.id] : []
+      }
+
+      if (libList.length === 1 && libList[0]?.is_system && localEntries.length > 0) {
+        derivedActiveIds = ['__local__', libList[0].id]
+      }
+
+      if (derivedActiveIds.length === 0) {
+        derivedActiveIds = ['__local__']
+      }
+
+      setCloudMode(true)
+      setSelectedLibId((prev) => prev && (prev === '__local__' || libList.some((lib) => lib.id === prev)) ? prev : derivedActiveIds[0] || libList[0]?.id || '__local__')
+      setActiveLibIds(derivedActiveIds)
+      setLibEntriesCache(cache)
+      updateMergedEntries(derivedActiveIds, cache)
+
+      if ((activeLibsPayload?.length || 0) === 0 && derivedActiveIds.some((id) => id !== '__local__')) {
+        persistActiveLibs(derivedActiveIds).catch(() => {})
+      }
 
       if (libList.length === 0) {
-        // 首次登录：迁移本地词条
         const newLib = await librariesApi.create({
           name: '我的词库',
           slug: `${(u?.username || 'user')}-default`,
@@ -71,157 +139,143 @@ export default function App() {
         })
         const localEnts = loadEntries()
         for (const e of localEnts) {
-          await entriesApi.create(newLib.id, {
-            id: e.id,
-            title: e.title,
-            description: e.description || '',
-            color: e.color || '#7c3aed',
-          }).catch(() => {})
+          await entriesApi.create(newLib.id, normalizeEntry(e)).catch(() => {})
         }
-        libList.push(newLib)
+        const nextCache = { '__local__': localEntries, [newLib.id]: localEnts.map(normalizeEntry) }
+        const nextMeta = {
+          ...metaCache,
+          [newLib.id]: { name: newLib.name, slug: newLib.slug, visibility: newLib.visibility, isSystem: !!newLib.is_system },
+        }
+        setLibMetaCache(nextMeta)
+        setLibEntriesCache(nextCache)
+        setActiveLibIds([newLib.id])
+        setSelectedLibId(newLib.id)
+        updateMergedEntries([newLib.id], nextCache)
+        persistActiveLibs([newLib.id]).catch(() => {})
       }
-
-      // 拉取激活词库
-      let activeIds = []
-      try {
-        const activeRes = await activelibsApi.get()
-        activeIds = activeRes.ids || activeRes || []
-      } catch {
-        // default: first lib
-        activeIds = libList.length > 0 ? [libList[0].id] : []
-      }
-      if (activeIds.length === 0 && libList.length > 0) {
-        activeIds = [libList[0].id]
-      }
-
-      setActiveLibIds(activeIds)
-      setSelectedLibId(libList[0]?.id || null)
-      setCloudMode(true)
-
-      // 构建词库元数据缓存
-      const metaCache = { '__local__': { name: '本地词库', slug: '__local__' } }
-      for (const lib of libList) {
-        metaCache[lib.id] = { name: lib.name, slug: lib.slug }
-      }
-      setLibMetaCache(metaCache)
-
-      // 拉取所有激活词库的词条
-      const cache = {}
-      for (const id of activeIds) {
-        try {
-          const res = await entriesApi.list(id)
-          cache[id] = (res.data || res || []).map((e) => ({
-            id: e.id, title: e.title, description: e.description, color: e.color,
-          }))
-        } catch { cache[id] = [] }
-      }
-      setLibEntriesCache(cache)
-      updateMergedEntries(activeIds, cache)
     } catch (err) {
       console.warn('cloud sync failed, using local', err)
+      setCloudMode(false)
       setActiveLibIds(['__local__'])
+      setLibEntriesCache({ '__local__': localEntries })
+      updateMergedEntries(['__local__'], { '__local__': localEntries })
     }
-  }, [])
+  }, [localEntries, persistActiveLibs, updateMergedEntries])
 
-  // ── 合并所有激活词库词条 ──
-  const updateMergedEntries = (activeIds, cache) => {
-    // Merge, handle conflicts by prefixing lib id
-    const merged = []
-    const titleCount = {}
-    for (const id of activeIds) {
-      for (const e of (cache[id] || [])) {
-        titleCount[e.title] = (titleCount[e.title] || 0) + 1
-      }
-    }
-    for (const id of activeIds) {
-      for (const e of (cache[id] || [])) {
-        if (titleCount[e.title] > 1) {
-          // prefix with lib slug (use id slice as fallback)
-          merged.push({ ...e, title: `${id.slice(0, 6)}/${e.title}` })
-        } else {
-          merged.push(e)
+  useEffect(() => {
+    const token = localStorage.getItem('pl_token')
+    if (!token) return
+
+    auth.getSelf()
+      .then((u) => {
+        setUser(u)
+        syncFromCloud(u)
+      })
+      .catch(() => {
+        localStorage.removeItem('pl_token')
+        setCloudMode(false)
+        setActiveLibIds(['__local__'])
+        setLibEntriesCache({ '__local__': localEntries })
+      })
+  }, [localEntries, syncFromCloud])
+
+  const handleActiveLibsChange = useCallback(async (newActiveIds) => {
+    const uniqueIds = [...new Set(newActiveIds)]
+    setActiveLibIds(uniqueIds)
+
+    const cache = { ...libEntriesCache, '__local__': localEntries }
+    for (const id of uniqueIds) {
+      if (id === '__local__') continue
+      if (!cache[id]) {
+        try {
+          const fetched = await entriesApi.list(id)
+          cache[id] = fetched.map(normalizeEntry)
+        } catch {
+          cache[id] = []
         }
       }
     }
-    setActiveLibEntries(merged)
-    // Also save to local so Tiptap mentions stay in sync
-    saveEntries(merged)
-  }
 
-  // ── 激活词库变更 ──
-  const handleActiveLibsChange = useCallback(async (newActiveIds) => {
-    setActiveLibIds(newActiveIds)
-    // Fetch any missing entries
-    const cache = { ...libEntriesCache }
-    for (const id of newActiveIds) {
-      if (!cache[id] && id !== '__local__' && cloudMode) {
-        try {
-          const res = await entriesApi.list(id)
-          cache[id] = (res.data || res || []).map((e) => ({
-            id: e.id, title: e.title, description: e.description, color: e.color,
-          }))
-        } catch { cache[id] = [] }
-      }
-    }
-    if (!cache['__local__']) cache['__local__'] = localEntries
     setLibEntriesCache(cache)
-    updateMergedEntries(newActiveIds, cache)
-  }, [libEntriesCache, cloudMode, localEntries])
+    updateMergedEntries(uniqueIds, cache)
+    persistActiveLibs(uniqueIds).catch((err) => console.warn('save active libs failed', err))
+  }, [libEntriesCache, localEntries, persistActiveLibs, updateMergedEntries])
 
-  // ── 计算 activeLibraries（含 name）供 Editor 使用 ──
   const activeLibraries = activeLibIds.map((id) => ({
     id,
     name: (libMetaCache[id] || {}).name || (id === '__local__' ? '本地词库' : id.slice(0, 8)),
-    entries: id === '__local__' ? localEntries : (libEntriesCache[id] || []),
+    entries: (id === '__local__' ? localEntries : (libEntriesCache[id] || [])).map(normalizeEntry),
   }))
 
-  // ── 词条在 EntryManager 中变更：更新缓存 ──
   const handleEntriesChange = useCallback((libId, newEntries) => {
+    const normalizedEntries = newEntries.map(normalizeEntry)
+
     if (libId === '__local__') {
-      setLocalEntries(newEntries)
-      saveEntries(newEntries)
+      setLocalEntries(normalizedEntries)
+      saveEntries(normalizedEntries)
     }
+
     setLibEntriesCache((prev) => {
-      const next = { ...prev, [libId]: newEntries }
+      const next = { ...prev, [libId]: normalizedEntries, '__local__': libId === '__local__' ? normalizedEntries : localEntries }
       updateMergedEntries(activeLibIds, next)
       return next
     })
-  }, [activeLibIds])
+  }, [activeLibIds, localEntries, updateMergedEntries])
 
-  // ── 备份/恢复（Toolbar 用到的全量 entries） ──
-  const allEntries = cloudMode ? activeLibEntries : localEntries
-  const handleToolbarImport = useCallback((newEntries) => {
-    setLocalEntries(newEntries)
-    saveEntries(newEntries)
-    if (!cloudMode) {
-      const cache = { ...libEntriesCache, '__local__': newEntries }
-      setLibEntriesCache(cache)
-      updateMergedEntries(activeLibIds, cache)
+  const handleToolbarImport = useCallback(({ targetLibId = '__local__', mode = 'merge', entries }) => {
+    const importedEntries = entries.map(normalizeEntry)
+
+    if (targetLibId !== '__local__') return
+
+    const nextEntries = mode === 'replace'
+      ? importedEntries
+      : [...localEntries, ...importedEntries.filter((entry) => !localEntries.some((existing) => existing.id === entry.id || existing.title === entry.title))]
+
+    setLocalEntries(nextEntries)
+    saveEntries(nextEntries)
+
+    setLibEntriesCache((prev) => {
+      const next = { ...prev, '__local__': nextEntries }
+      updateMergedEntries(activeLibIds, next)
+      return next
+    })
+  }, [activeLibIds, localEntries, updateMergedEntries])
+
+  const handleLibrariesReload = useCallback(async ({ selectedId } = {}) => {
+    if (!user) return
+    const libs = await librariesApi.list()
+    const metaCache = { '__local__': { name: '本地词库', slug: '__local__' } }
+    for (const lib of libs) {
+      metaCache[lib.id] = { name: lib.name, slug: lib.slug, visibility: lib.visibility, isSystem: !!lib.is_system }
     }
-  }, [cloudMode, libEntriesCache, activeLibIds])
+    setLibMetaCache(metaCache)
+
+    if (selectedId) {
+      setSelectedLibId(selectedId)
+      if (!activeLibIds.includes(selectedId)) {
+        handleActiveLibsChange([...activeLibIds, selectedId])
+      }
+    } else if (!selectedLibId && libs[0]) {
+      setSelectedLibId(libs[0].id)
+    }
+  }, [activeLibIds, handleActiveLibsChange, selectedLibId, user])
 
   const handleLogout = () => {
     localStorage.removeItem('pl_token')
     setUser(null)
     setCloudMode(false)
     setActiveLibIds(['__local__'])
-    setLibEntriesCache({})
+    setLibEntriesCache({ '__local__': loadEntries() })
     setActiveLibEntries([])
-    setSelectedLibId(null)
+    setSelectedLibId('__local__')
     setLocalEntries(loadEntries())
+    setLibMetaCache({ '__local__': { name: '本地词库', slug: '__local__' } })
   }
 
-  // ── 编辑器用的 entries（所有激活词库合并） ──
   const editorEntries = cloudMode ? activeLibEntries : localEntries
-
-  // ── 本地词库始终加入缓存 ──
-  useEffect(() => {
-    setLibEntriesCache((prev) => ({ ...prev, '__local__': localEntries }))
-  }, [localEntries])
 
   return (
     <div className="min-h-screen flex flex-col">
-      {/* Header */}
       <header className="border-b border-[#1e1e2e] bg-[#0a0a10]/80 backdrop-blur sticky top-0 z-50">
         <div className="max-w-6xl mx-auto px-6 h-14 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -237,7 +291,7 @@ export default function App() {
               </span>
             )}
 
-            <Toolbar entries={allEntries} onImport={handleToolbarImport} />
+            <Toolbar entries={localEntries} onImport={handleToolbarImport} disabled={cloudMode && selectedLibId !== '__local__'} />
 
             {user ? (
               <div className="flex items-center gap-2">
@@ -281,7 +335,6 @@ export default function App() {
         </div>
       </header>
 
-      {/* Help banner */}
       {showHelp && (
         <div className="bg-[#14141e] border-b border-[#1e1e2e] text-sm text-[#a0a0c0]">
           <div className="max-w-6xl mx-auto px-6 py-4 grid sm:grid-cols-2 gap-4">
@@ -307,41 +360,41 @@ export default function App() {
         </div>
       )}
 
-      {/* Tabs */}
       <div className="border-b border-[#1e1e2e]">
         <div className="max-w-6xl mx-auto px-6 flex gap-1 pt-2">
-          {TABS.map(({ id, label, icon: Icon }) => (
+          {TABS.map((tabItem) => {
+            const TabIcon = tabItem.icon
+            return (
             <button
-              key={id}
-              onClick={() => setTab(id)}
+              key={tabItem.id}
+              onClick={() => setTab(tabItem.id)}
               className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-t-lg border-b-2 transition-colors ${
-                tab === id
+                tab === tabItem.id
                   ? 'border-violet-500 text-violet-300 bg-[#14141e]'
                   : 'border-transparent text-[#666688] hover:text-[#a0a0c0]'
               }`}
             >
-              <Icon size={14} />
-              {label}
-              {id === 'library' && editorEntries.length > 0 && (
+              <TabIcon size={14} />
+              {tabItem.label}
+              {tabItem.id === 'library' && editorEntries.length > 0 && (
                 <span className="ml-1 text-[10px] bg-violet-600/30 text-violet-300 px-1.5 py-0.5 rounded-full">
                   {editorEntries.length}
                 </span>
               )}
             </button>
-          ))}
+            )
+          })}
         </div>
       </div>
 
-      {/* Main */}
       <main className="flex-1 max-w-6xl mx-auto w-full px-6 py-6">
         {tab === 'editor' && (
           <div className="flex flex-col gap-6">
-            {/* Active libs badge bar */}
             {activeLibIds.length > 0 && (
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-[10px] text-[#555570]">激活词库：</span>
                 {activeLibIds.map((id) => {
-                  const count = (libEntriesCache[id] || (id === '__local__' ? localEntries : [])).length
+                  const count = (id === '__local__' ? localEntries : (libEntriesCache[id] || [])).length
                   const label = (libMetaCache[id] || {}).name || (id === '__local__' ? '本地词库' : id.slice(0, 8))
                   return (
                     <span key={id} className="flex items-center gap-1 text-[10px] bg-[#14141e] border border-[#2e2e45] text-violet-300 px-2 py-0.5 rounded-full">
@@ -364,7 +417,14 @@ export default function App() {
             )}
             <section>
               <h2 className="text-xs font-semibold text-[#666688] uppercase tracking-wider mb-3">编辑区</h2>
-              <Editor entries={editorEntries} activeLibraries={activeLibraries} colorMode={colorMode} onColorModeChange={setColorMode} onGenerate={setOutput} initialText={initText} />
+              <Editor
+                entries={editorEntries}
+                activeLibraries={activeLibraries}
+                colorMode={colorMode}
+                onColorModeChange={setColorMode}
+                onGenerate={setOutput}
+                initialText={initText}
+              />
             </section>
             {output && (
               <section>
@@ -377,7 +437,6 @@ export default function App() {
 
         {tab === 'library' && (
           <div className="flex gap-6 min-h-[500px]">
-            {/* Left: Library list */}
             <div className="w-56 shrink-0 flex flex-col">
               <LibraryList
                 user={user}
@@ -385,10 +444,10 @@ export default function App() {
                 onSelectLib={setSelectedLibId}
                 activeLibIds={activeLibIds}
                 onActiveLibsChange={handleActiveLibsChange}
+                onLibrariesReload={handleLibrariesReload}
               />
             </div>
 
-            {/* Right: Entry manager for selected lib */}
             <div className="flex-1 min-w-0">
               {selectedLibId ? (
                 <div>
@@ -419,13 +478,16 @@ export default function App() {
       </main>
 
       <footer className="border-t border-[#1e1e2e] text-center py-4 text-xs text-[#333350]">
-        PromptLib v2.0.0 · {user ? `已登录为 ${user.username}` : '数据保存在本地浏览器'}
+        PromptLib v2.0.1 · {user ? `已登录为 ${user.username}` : '数据保存在本地浏览器'}
       </footer>
 
       {showAuth && (
         <AuthModal
           onClose={() => setShowAuth(false)}
-          onLogin={(u) => { setUser(u); syncFromCloud(u) }}
+          onLogin={(u) => {
+            setUser(u)
+            syncFromCloud(u)
+          }}
         />
       )}
     </div>

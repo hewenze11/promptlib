@@ -156,7 +156,7 @@ export default function EntryManager({ entries, onChange, libId, cloudMode }) {
     } else {
       setCloudEntries(null)
     }
-  }, [cloudMode, libId])
+  }, [cloudMode, libId, fetchCloudEntries])
 
   // Effective entries: cloud if available, else prop
   const effectiveEntries = (cloudMode && libId && libId !== '__local__' && cloudEntries !== null)

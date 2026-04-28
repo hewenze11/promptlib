@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useImperativeHandle, useState } from 'react'
+import { forwardRef, useImperativeHandle, useState } from 'react'
 
 /**
  * @mention 下拉列表组件
@@ -6,6 +6,7 @@ import { forwardRef, useEffect, useImperativeHandle, useState } from 'react'
  */
 const MentionList = forwardRef(({ items, command }, ref) => {
   const [selectedIndex, setSelectedIndex] = useState(0)
+  const safeSelectedIndex = items.length === 0 ? 0 : Math.min(selectedIndex, items.length - 1)
 
   const selectItem = (index) => {
     const item = items[index]
@@ -21,9 +22,7 @@ const MentionList = forwardRef(({ items, command }, ref) => {
     setSelectedIndex((i) => (i + items.length - 1) % items.length)
   const downHandler = () =>
     setSelectedIndex((i) => (i + 1) % items.length)
-  const enterHandler = () => selectItem(selectedIndex)
-
-  useEffect(() => setSelectedIndex(0), [items])
+  const enterHandler = () => selectItem(safeSelectedIndex)
 
   useImperativeHandle(ref, () => ({
     onKeyDown: ({ event }) => {
@@ -41,7 +40,7 @@ const MentionList = forwardRef(({ items, command }, ref) => {
       {items.map((item, index) => (
         <div
           key={`${item.id}-${item.libraryId || 'local'}`}
-          className={`mention-item${index === selectedIndex ? ' is-selected' : ''}`}
+          className={`mention-item${index === safeSelectedIndex ? ' is-selected' : ''}`}
           onClick={() => selectItem(index)}
         >
           <span className="mention-item-title">@{item.displayTitle || item.title}</span>

@@ -10,7 +10,7 @@ export function renderDescription(text, onMentionClick) {
   // 按 [text](url) 和 @mention 分割
   const parts = []
   // 匹配 markdown 链接 或 @mention
-  const regex = /\[([^\]]+)\]\((https?:\/\/[^\)]+)\)|@([\w\u4e00-\u9fa5\-_]+)/g
+  const regex = /\[([^\]]+)\]\((https?:\/\/[^)]+)\)|@([\w\u4e00-\u9fa5\-_]+)/g
   let last = 0
   let m
 
@@ -72,7 +72,7 @@ export function renderDescription(text, onMentionClick) {
  * 从文本中提取所有 [text](url) 链接，返回 { label, url }[]
  */
 export function extractLinks(text) {
-  const regex = /\[([^\]]+)\]\((https?:\/\/[^\)]+)\)/g
+  const regex = /\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g
   const results = []
   let m
   while ((m = regex.exec(text)) !== null) {
@@ -85,5 +85,5 @@ export function extractLinks(text) {
  * 将文本中的 [text](url) 在纯文本输出时保留为 text (url) 格式
  */
 export function textifyDescription(text) {
-  return text.replace(/\[([^\]]+)\]\((https?:\/\/[^\)]+)\)/g, '$1 ($2)')
+  return text.replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g, '$1 ($2)')
 }

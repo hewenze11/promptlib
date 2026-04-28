@@ -120,11 +120,12 @@ export default function EntryPanel({ entries, colorMode, onColorModeChange, onIn
       <div className="flex flex-wrap gap-2 p-3 bg-[#0d0d18] rounded-xl border border-[#1e1e2e] min-h-[56px]">
         {entries.map((entry) => {
           const color = getEntryColor(entry, colorMode, levels)
+          const label = entry.displayTitle || entry.title
           return (
             <button
-              key={entry.id}
+              key={`${entry.libraryId || 'lib'}:${entry.id}`}
               onClick={(e) => handleChipClick(e, entry)}
-              title={isInsert ? `插入 ${entry.title}` : `查看 ${entry.title} 详情`}
+              title={isInsert ? `插入 ${label}` : `查看 ${label} 详情`}
               style={{
                 background: hexToRgba(color, 0.15),
                 color: color,
@@ -132,7 +133,7 @@ export default function EntryPanel({ entries, colorMode, onColorModeChange, onIn
               }}
               className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium transition-all hover:scale-105 active:scale-95 cursor-pointer"
             >
-              {isInsert ? '＋' : '◆'} {entry.title}
+              {isInsert ? '＋' : '◆'} {label}
             </button>
           )
         })}

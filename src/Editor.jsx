@@ -140,15 +140,20 @@ export default function Editor({ entries, activeLibraries = [], colorMode, onCol
   // ── 候选词条：来自所有激活词库 + 临时词库，冲突时显示完整 库名.词条名 ──
   const candidateEntries = useMemo(() => {
     const result = []
+    const dedupe = new Set()
     const allLibs = [...activeLibraries, ...tempLibs]
+
     for (const lib of allLibs) {
       for (const e of (lib.entries || [])) {
+        const dedupeKey = `${lib.id}:${e.id}`
+        if (dedupe.has(dedupeKey)) continue
+        dedupe.add(dedupeKey)
+
         const hasConflict = conflictMap.get(e.title) > 1
         result.push({
           ...e,
           libraryId: lib.id,
           libraryName: lib.name,
-          // displayTitle is used in MentionList for the @ suggestion
           displayTitle: hasConflict ? `${lib.name}.${e.title}` : e.title,
         })
       }
@@ -254,14 +259,6 @@ export default function Editor({ entries, activeLibraries = [], colorMode, onCol
     },
   })
 
-  // Update conflictMap on the extension when it changes
-  useEffect(() => {
-    if (!editor) return
-    const ext = editor.extensionManager.extensions.find(e => e.name === 'mention' && e.options?.conflictMap !== undefined && e.type !== 'mark')
-    // We need to update via reconfigure
-    editor.setOptions({})  // triggers re-render of node views
-  }, [conflictMap, editor]) // eslint-disable-line react-hooks/exhaustive-deps
-
   // ── 色系联动 ──
   useEffect(() => {
     if (!editor || !entries.length) return
@@ -328,7 +325,17 @@ export default function Editor({ entries, activeLibraries = [], colorMode, onCol
     const e = editorRef.current
     if (!e) return
     e.chain().focus()
-      .insertContent({ type: 'mention', attrs: { id: entry.id, label: entry.title, mode: 'A', color } })
+      .insertContent({
+        type: 'mention',
+        attrs: {
+          id: entry.id,
+          label: entry.title,
+          mode: 'A',
+          color,
+          libraryId: entry.libraryId || null,
+          libraryName: entry.libraryName || null,
+        },
+      })
       .insertContent(' ')
       .run()
   }
@@ -468,7 +475,7 @@ export default function Editor({ entries, activeLibraries = [], colorMode, onCol
 
       {/* 词条快捷面板 */}
       <EntryPanel
-        entries={entries}
+        entries={candidateEntries}
         colorMode={colorMode}
         onColorModeChange={onColorModeChange}
         onInsert={handlePanelInsert}

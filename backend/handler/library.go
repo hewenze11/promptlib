@@ -32,6 +32,12 @@ func CreateLibrary(c *gin.Context) {
 	if req.Visibility == "" {
 		req.Visibility = "private"
 	}
+	var exists int64
+	model.DB.Model(&model.Library{}).Where("user_id = ? AND slug = ?", c.GetUint("user_id"), req.Slug).Count(&exists)
+	if exists > 0 {
+		c.JSON(http.StatusConflict, gin.H{"error": "slug 已存在"})
+		return
+	}
 	lib := model.Library{
 		ID:          uuid.New().String(),
 		UserID:      c.GetUint("user_id"),
@@ -107,9 +113,46 @@ func UpdateLibrary(c *gin.Context) {
 
 // DELETE /api/libraries/:id
 func DeleteLibrary(c *gin.Context) {
-	result := model.DB.Where("id = ? AND user_id = ?", c.Param("id"), c.GetUint("user_id")).Delete(&model.Library{})
-	if result.RowsAffected == 0 {
+	userID := c.GetUint("user_id")
+	libID := c.Param("id")
+
+	var lib model.Library
+	if err := model.DB.First(&lib, "id = ? AND user_id = ?", libID, userID).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "词库不存在"})
+		return
+	}
+
+	err := model.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&model.Library{}).Where("fork_from_id = ?", libID).Update("fork_from_id", nil).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("library_id = ?", libID).Delete(&model.Entry{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("library_id = ?", libID).Delete(&model.LibraryTag{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("library_id = ?", libID).Delete(&model.LibraryStar{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("library_id = ?", libID).Delete(&model.UserActiveLib{}).Error; err != nil {
+			return err
+		}
+		result := tx.Where("id = ? AND user_id = ?", libID, userID).Delete(&model.Library{})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return gorm.ErrRecordNotFound
+		}
+		return nil
+	})
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			c.JSON(http.StatusNotFound, gin.H{"error": "词库不存在"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "删除失败"})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "已删除"})
@@ -157,11 +200,18 @@ func ForkLibrary(c *gin.Context) {
 		return
 	}
 	srcID := src.ID
+	newSlug := src.Slug + "-fork"
+	var exists int64
+	model.DB.Model(&model.Library{}).Where("user_id = ? AND slug = ?", userID, newSlug).Count(&exists)
+	if exists > 0 {
+		c.JSON(http.StatusConflict, gin.H{"error": "slug 已存在，请先修改"})
+		return
+	}
 	newLib := model.Library{
 		ID:          uuid.New().String(),
 		UserID:      userID,
 		Name:        src.Name,
-		Slug:        src.Slug + "-fork",
+		Slug:        newSlug,
 		Description: src.Description,
 		Visibility:  "private",
 		ForkFromID:  &srcID,

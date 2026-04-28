@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom'
-import { GitFork, Star, ArrowLeft, Copy, Check, Download, LogIn } from 'lucide-react'
-import { libraries, entries as entriesApi, auth } from './api'
+import { GitFork, Star, ArrowLeft, Copy, Check, Download } from 'lucide-react'
+import { libraries, auth } from './api'
 import { saveEntries, loadEntries } from './storage'
 
 export default function LibraryPage() {
@@ -30,11 +30,7 @@ export default function LibraryPage() {
     }
 
     // 加载词库
-    fetch(`/api/users/${username}/${slug}`)
-      .then((r) => {
-        if (!r.ok) throw new Error('词库不存在或无权限访问')
-        return r.json()
-      })
+    libraries.getPublic(username, slug)
       .then((data) => {
         setLib(data.library)
         setEntries(data.entries || [])
@@ -84,10 +80,7 @@ export default function LibraryPage() {
   // Fork 到云端（已登录）
   const forkToCloud = async () => {
     try {
-      await fetch(`/api/users/${username}/${slug}/fork`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${localStorage.getItem('pl_token')}` },
-      })
+      await libraries.fork(username, slug)
       setImported(true)
       if (sharedText) {
         navigate(`/?text=${encodeURIComponent(sharedText)}`)
