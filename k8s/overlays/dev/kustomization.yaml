@@ -5,6 +5,6 @@ resources:
 - ../../base
 images:
 - name: 47.239.171.228/promptlib/backend
-  newTag: dev-c5bfb7d
+  newTag: dev-e8be44d
 - name: 47.239.171.228/promptlib/frontend
   newTag: dev-e8be44d
